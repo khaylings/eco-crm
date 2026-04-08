@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background-color: #f0f4f8;
+  color: #1a1a1a;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: #1e5799 !important;
+}
