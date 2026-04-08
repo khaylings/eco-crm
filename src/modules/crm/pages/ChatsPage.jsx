@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef } from 'react'
 import { io } from 'socket.io-client'
 
-const socket = io('http://https://eco-whatsapp-backend-production.up.railway.app')
+const socket = io('https://sea-turtle-app-ck6xi.ondigitalocean.app', {
+  transports: ['polling']
+})
 
 const etiquetas = [
   { valor: '', label: 'Sin etiqueta', color: '#999' },
@@ -75,7 +77,7 @@ export default function ChatsPage() {
     if (!mensaje.trim() || !chatActivo) return
     setEnviando(true)
     try {
-      await fetch('http://https://eco-whatsapp-backend-production.up.railway.app/enviar', {
+      await fetch('https://sea-turtle-app-ck6xi.ondigitalocean.app/enviar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ numero: chatActivo.telefono, mensaje })
@@ -87,7 +89,7 @@ export default function ChatsPage() {
 
   const actualizarConversacion = async (campo, valor) => {
     if (!chatActivo) return
-    await fetch(`http://https://eco-whatsapp-backend-production.up.railway.app/conversacion/${encodeURIComponent(chatActivo.id)}`, {
+    await fetch(`https://sea-turtle-app-ck6xi.ondigitalocean.app/conversacion/${encodeURIComponent(chatActivo.id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [campo]: valor })

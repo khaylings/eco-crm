@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
 import { useNavigate } from 'react-router-dom'
 
-const socket = io('http://https://eco-whatsapp-backend-production.up.railway.app')
+const socket = io('https://sea-turtle-app-ck6xi.ondigitalocean.app', {
+  transports: ['polling']
+})
 
 export default function WhatsAppConector() {
   const [estado, setEstado] = useState('desconectado')
@@ -20,11 +22,11 @@ export default function WhatsAppConector() {
   }, [])
 
   const conectar = async () => {
-    await fetch('http://https://eco-whatsapp-backend-production.up.railway.app/conectar', { method: 'POST' })
+    await fetch('https://sea-turtle-app-ck6xi.ondigitalocean.app/conectar', { method: 'POST' })
   }
 
   const desconectar = async () => {
-    await fetch('http://https://eco-whatsapp-backend-production.up.railway.app/desconectar', { method: 'POST' })
+    await fetch('https://sea-turtle-app-ck6xi.ondigitalocean.app/desconectar', { method: 'POST' })
     setQr(null)
   }
 
@@ -32,7 +34,7 @@ export default function WhatsAppConector() {
     if (!numero || !mensaje) return
     setEnviando(true)
     try {
-      const res = await fetch('http://https://eco-whatsapp-backend-production.up.railway.app/enviar', {
+      const res = await fetch('https://sea-turtle-app-ck6xi.ondigitalocean.app/enviar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ numero, mensaje })
