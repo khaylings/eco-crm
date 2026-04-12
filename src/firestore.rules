@@ -1,0 +1,133 @@
+// ==============================================================
+// LK-CRM — Firestore Security Rules
+// Copyright (c) 2024 LK-CRM. Todos los derechos reservados.
+//
+// Archivo: firestore.rules
+// Estas reglas controlan quién puede leer/escribir qué datos.
+// IMPORTANTE: Deployar con: firebase deploy --only firestore:rules
+// ==============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------------------------------------------------------
+    // Funciones auxiliares
+    // -------------------------------------------------------
+
+    // Verifica si el usuario está autenticado
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Verifica si el usuario tiene rol "admin" en Firestore
+    function isAdmin() {
+      return isAuth() &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'admin';
+    }
+
+    // Verifica si el usuario tiene rol "admin" o "supervisor"
+    function isSupervisorOrAdmin() {
+      return isAuth() && (
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol in ['admin', 'supervisor']
+      );
+    }
+
+    // Verifica que el usuario pertenece a la misma empresa
+    function sameEmpresa(empresaId) {
+      return isAuth() &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.empresaId == empresaId;
+    }
+
+    // -------------------------------------------------------
+    // CRÍTICO: Configuración segura (API keys encriptadas)
+    // Solo admins pueden leer/escribir
+    // -------------------------------------------------------
+    match /configuracion_segura/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // -------------------------------------------------------
+    // Usuarios del sistema
+    // -------------------------------------------------------
+    match /usuarios/{userId} {
+      // Cada usuario puede leer su propio perfil
+      allow read: if isAuth() && request.auth.uid == userId;
+      // Admins pueden leer todos los perfiles
+      allow read: if isAdmin();
+      // Solo admins pueden crear/modificar usuarios
+      allow write: if isAdmin();
+    }
+
+    // -------------------------------------------------------
+    // Datos operativos (leads, contactos, cotizaciones, etc.)
+    // Cualquier usuario autenticado puede operar
+    // -------------------------------------------------------
+    match /leads/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /contactos/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /empresas/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /cotizaciones/{docId} {
+      allow read, write: if isAuth();
+      match /items/{itemId} {
+        allow read, write: if isAuth();
+      }
+    }
+
+    match /productos/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /inventario/{docId} {
+      allow read, write: if isAuth();
+      match /movimientos/{movId} {
+        allow read, write: if isAuth();
+      }
+    }
+
+    match /conversaciones/{docId} {
+      allow read, write: if isAuth();
+      match /mensajes/{msgId} {
+        allow read, write: if isAuth();
+      }
+    }
+
+    match /calendario/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /proveedores/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    // -------------------------------------------------------
+    // Configuración general (no sensible)
+    // Solo admins pueden modificar, todos pueden leer
+    // -------------------------------------------------------
+    match /configuracion/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // Catálogos editables (etiquetas, categorías, etc.)
+    match /catalogos/{docId} {
+      allow read: if isAuth();
+      allow write: if isSupervisorOrAdmin();
+    }
+
+    // -------------------------------------------------------
+    // Denegar todo lo demás por defecto
+    // -------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

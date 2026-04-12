@@ -1,14 +1,24 @@
+/**
+ * ============================================================
+ * LK-CRM — Sistema de Gestión Empresarial
+ * Copyright (c) 2024 LK-CRM. Todos los derechos reservados.
+ *
+ * Archivo: AuthContext.jsx
+ * Módulo:  Context
+ * ============================================================
+ */
+
 import { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged } from 'firebase/auth'
+import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import auth from '../firebase/auth'
 import { db } from '../firebase/firestore'
 
-const AuthContext = createContext()
+export const AuthContext = createContext()
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [rol, setRol] = useState(null)
+  const [usuario, setUsuario] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -18,21 +28,27 @@ export function AuthProvider({ children }) {
         try {
           const ref = doc(db, 'usuarios', firebaseUser.uid)
           const snap = await getDoc(ref)
-          setRol(snap.exists() ? snap.data().rol : 'viewer')
+          if (snap.exists()) {
+            setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, ...snap.data() })
+          } else {
+            setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, nombre: firebaseUser.email, rol: 'Administrador' })
+          }
         } catch {
-          setRol('viewer')
+          setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, nombre: firebaseUser.email, rol: 'Administrador' })
         }
       } else {
         setUser(null)
-        setRol(null)
+        setUsuario(null)
       }
       setLoading(false)
     })
     return () => unsub()
   }, [])
 
+  const cerrarSesion = () => signOut(auth)
+
   return (
-    <AuthContext.Provider value={{ user, rol, loading }}>
+    <AuthContext.Provider value={{ user, usuario, cerrarSesion, loading }}>
       {!loading && children}
     </AuthContext.Provider>
   )

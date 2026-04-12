@@ -1,3 +1,13 @@
+/**
+ * ============================================================
+ * LK-CRM — Sistema de Gestión Empresarial
+ * Copyright (c) 2024 LK-CRM. Todos los derechos reservados.
+ *
+ * Archivo: EmpresaContext.jsx
+ * Módulo:  Context
+ * ============================================================
+ */
+
 import { createContext, useContext, useEffect, useState } from 'react'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '../firebase/firestore'

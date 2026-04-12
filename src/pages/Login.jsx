@@ -1,3 +1,13 @@
+/**
+ * ============================================================
+ * LK-CRM — Sistema de Gestión Empresarial
+ * Copyright (c) 2024 LK-CRM. Todos los derechos reservados.
+ *
+ * Archivo: Login.jsx
+ * Módulo:  Pages
+ * ============================================================
+ */
+
 import { useState } from 'react'
 import { signInWithEmailAndPassword } from 'firebase/auth'
 import auth from '../firebase/auth'

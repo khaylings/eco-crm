@@ -1,3 +1,13 @@
+/**
+ * ============================================================
+ * LK-CRM — Sistema de Gestión Empresarial
+ * Copyright (c) 2024 LK-CRM. Todos los derechos reservados.
+ *
+ * Archivo: Conectores.jsx
+ * Módulo:  Configuracion
+ * ============================================================
+ */
+
 import { useNavigate } from 'react-router-dom'
 
 const conectores = [

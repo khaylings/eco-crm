@@ -1,4 +1,37 @@
-@import "tailwindcss";
+/**
+ * ============================================================
+ * LK-CRM — Sistema de Gestión Empresarial
+ * Copyright (c) 2024 LK-CRM. Todos los derechos reservados.
+ *
+ * Archivo: CRMPage.jsx
+ * Módulo:  CRM
+ * ============================================================
+ */
+ /* ECO-CRM — Variables globales del sistema de temas */
+/* Estas variables son controladas por ThemeContext.jsx */
+
+:root {
+  /* Colores del tema (sobreescritos por JS) */
+  --eco-primary: #1a6e3c;
+  --eco-primary-dark: #155c31;
+  --eco-primary-mid: #2d9e5f;
+  --eco-primary-light: #d4eed9;
+
+  /* Forma de los elementos */
+  --eco-radius: 0px;
+
+  /* Densidad */
+  --eco-pad: 9px;
+  --eco-font-base: 13px;
+
+  /* Colores fijos del sistema */
+  --eco-bg: #f4f6f4;
+  --eco-card: #ffffff;
+  --eco-border: #d0d8d0;
+  --eco-text: #1a1a1a;
+  --eco-muted: #5c6b5c;
+  --eco-hint: #8a9e8a;
+}
 
 * {
   box-sizing: border-box;
@@ -7,12 +40,57 @@
 }
 
 body {
-  font-family: 'DM Sans', sans-serif;
-  background-color: #f0f4f8;
-  color: #1a1a1a;
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  background: var(--eco-bg);
+  color: var(--eco-text);
+  font-size: var(--eco-font-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-input:focus, select:focus {
-  outline: none;
-  border-color: #1e5799 !important;
+/* Scrollbar personalizado */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--eco-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--eco-muted);
+}
+
+/* Inputs globales */
+input, select, textarea, button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+/* Links */
+a {
+  color: var(--eco-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
 }
