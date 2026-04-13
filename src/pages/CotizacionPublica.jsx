@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, deleteField, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase/config";
 
 const fmtN = (n) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -54,20 +54,28 @@ const printStyles = `
   body { font-family: 'Inter', sans-serif; background: #f0f2f5; }
   .no-print { }
   .solo-print { display: none !important; }
+  .print-footer { display: none; }
+  .print-header { display: none; }
+  .pagina-terminos { display: none; }
   @media print {
-    @page { size: letter; margin: 0; }
-    body { background: white !important; }
+    @page { size: letter; margin: 0 0 85px 0; }
+    body { background: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
     .no-print { display: none !important; }
     .solo-print { display: block !important; }
-    .pagina-cot { page-break-after: always; box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; }
-    .pagina-cot:last-child { page-break-after: avoid; }
+    .cot-print-wrapper { padding: 0 !important; margin: 0 !important; background: white !important; }
+    .pagina-cot { page-break-inside: auto; box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; transform: scale(1.371); transform-origin: top left; }
+    .print-header { display: block !important; position: fixed; top: 0; left: 0; width: 595px; background: white; transform: scale(1.371); transform-origin: top left; }
+    .print-footer { display: block !important; position: fixed; bottom: 0; left: 0; width: 595px; background: white; transform: scale(1.371); transform-origin: bottom left; }
+    .print-footer > div { overflow: visible !important; }
+    .pagina-terminos { display: block !important; page-break-before: always; box-shadow: none !important; margin: 0 !important; transform: scale(1.371); transform-origin: top left; }
     .portada-page { page-break-after: always; }
     .panel-lateral-pub { display: none !important; }
   }
 `;
 
 // ── Renderizador de widget individual ────────────────────────────────────────
-function WidgetRenderer({ w, empresa, cot, op, opcionales, setOpcionales, esPdf, totales, cambiarOpcionFn, zIdx=1 }) {
+function WidgetRenderer({ w, empresa, cot, op, opcionales, setOpcionales, esPdf, totales, cambiarOpcionFn, zIdx=1, pagina, totalPaginas }) {
   const mon = cot?.moneda || "USD";
   const tasa = Number(cot?.tasa || 519.5);
 
@@ -147,11 +155,40 @@ function WidgetRenderer({ w, empresa, cot, op, opcionales, setOpcionales, esPdf,
     return (
       <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, height: w.h, opacity: w.opacity, background: w.bg, borderRadius: w.borderRadius, border: w.borderWidth ? `${w.borderWidth}px solid ${w.borderColor}` : 'none', display: 'flex', alignItems: 'flex-start', overflow: 'hidden', zIndex: zIdx }}>
         <div style={{ ...txtStyle, textAlign: 'center', width: '100%' }}>
-          {`Fecha: ${cot?.fechaEmision || '—'}\nVence: ${cot?.fechaVencimiento || '—'}\nVendedor: ${(cot?.vendedorNombre || '—').split(' ')[0]}`}
+          {`Fecha: ${cot?.fechaEmision || (cot?.creadoEn?.toDate ? cot.creadoEn.toDate().toISOString().split('T')[0] : '') || '—'}\nVence: ${cot?.fechaVencimiento || '—'}\nVendedor: ${(cot?.vendedorNombre || '—').split(' ')[0]}`}
         </div>
       </div>
     );
   }
+
+  if (w.type === 'info_cotizacion') {
+    const nombre = cot?.clienteNombre || '—';
+    const empresa = cot?.empresaNombre || '';
+    const sede = cot?.sedeNombre || cot?.ubicacion || '';
+    const contacto = cot?.clienteTelefono || cot?.clienteWhatsapp || cot?.clienteEmail || cot?.contactoEmail || '';
+    const linea2 = empresa ? `Empresa: ${empresa}` : contacto ? `Contacto: ${contacto}` : `Cédula: ${cot?.empresaCedula || cot?.clienteCedula || '—'}`;
+    const linea3 = empresa && sede ? `Sede: ${sede}` : empresa && cot?.empresaCedula ? `Cédula: ${cot.empresaCedula}` : empresa && contacto ? `Contacto: ${contacto}` : `Ubicación: ${sede || '—'}`;
+    return (
+      <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, minHeight: w.h, opacity: w.opacity, background: w.bg, borderRadius: w.borderRadius, border: w.borderWidth ? `${w.borderWidth}px solid ${w.borderColor}` : 'none', display: 'flex', gap: 12, overflow: 'visible', zIndex: zIdx }}>
+        <div style={{ flex: 1, fontSize: w.fontSize, color: w.color, lineHeight: 1.6, padding: '4px 8px' }}>
+          <div>Nombre: {nombre}</div>
+          <div>{linea2}</div>
+          <div>{linea3}</div>
+        </div>
+        <div style={{ flex: 1, fontSize: w.fontSize, color: w.color, lineHeight: 1.6, padding: '4px 8px', textAlign: 'right' }}>
+          <div>Fecha: {cot?.fechaEmision || (cot?.creadoEn?.toDate ? cot.creadoEn.toDate().toISOString().split('T')[0] : '') || '—'}</div>
+          <div>Vence: {cot?.fechaVencimiento || '—'}</div>
+          <div>Vendedor: {(cot?.vendedorNombre || '—').split(' ')[0]}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (w.type === 'vendedor') return (
+    <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, height: w.h, opacity: w.opacity, background: w.bg, borderRadius: w.borderRadius, border: w.borderWidth ? `${w.borderWidth}px solid ${w.borderColor}` : 'none', display: 'flex', alignItems: 'center', overflow: 'hidden', zIndex: zIdx }}>
+      <div style={{ ...txtStyle }}>{`Vendedor: ${(cot?.vendedorNombre || '—').split(' ')[0]}`}</div>
+    </div>
+  );
 
   if (w.type === 'datos_cliente') {
     const lineas = [];
@@ -243,10 +280,10 @@ function WidgetRenderer({ w, empresa, cot, op, opcionales, setOpcionales, esPdf,
   }
 
   if (w.type === 'terminos') {
-    const texto = cot?.terminos || w.text;
+    const texto = (cot?.terminos && cot.terminos.trim()) ? cot.terminos : (cot?.textoTerminos && cot.textoTerminos.trim()) ? cot.textoTerminos : w.text;
     if (!texto) return null;
     return (
-      <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, height: w.h, opacity: w.opacity, background: w.bg, borderRadius: w.borderRadius, border: w.borderWidth ? `${w.borderWidth}px solid ${w.borderColor}` : 'none', overflow: 'hidden', display: 'flex', alignItems: 'flex-start', zIndex: zIdx }}>
+      <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, minHeight: w.h, opacity: w.opacity, background: w.bg, borderRadius: w.borderRadius, border: w.borderWidth ? `${w.borderWidth}px solid ${w.borderColor}` : 'none', overflow: 'visible', display: 'flex', alignItems: 'flex-start', zIndex: zIdx }}>
         <div style={{ ...txtStyle }}>{texto}</div>
       </div>
     );
@@ -304,27 +341,73 @@ function WidgetRenderer({ w, empresa, cot, op, opcionales, setOpcionales, esPdf,
     );
   }
 
+  // Widget: Paginación
+  if (w.type === 'paginacion') {
+    const pag = pagina || 1;
+    const tot = totalPaginas || 1;
+    const texto = (w.text || 'Página {{pagina}} de {{totalPaginas}}')
+      .replace(/\{\{pagina\}\}/gi, pag)
+      .replace(/\{\{totalPaginas\}\}/gi, tot);
+    return (
+      <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, height: w.h, opacity: w.opacity, display: 'flex', alignItems: 'center', zIndex: zIdx }}>
+        <div style={{ ...txtStyle }}>{texto}</div>
+      </div>
+    );
+  }
+
+  // Widget: Teléfono empresa
+  if (w.type === 'telefono_empresa') return (
+    <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, height: w.h, opacity: w.opacity, display: 'flex', alignItems: 'center', zIndex: zIdx }}>
+      <div style={{ ...txtStyle }}>{(empresa?.telefono && empresa.telefono.trim()) || w.text || ''}</div>
+    </div>
+  );
+
+  // Widget: Email empresa
+  if (w.type === 'email_empresa') return (
+    <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, height: w.h, opacity: w.opacity, display: 'flex', alignItems: 'center', zIndex: zIdx }}>
+      <div style={{ ...txtStyle }}>{(empresa?.email && empresa.email.trim()) || (empresa?.correo && empresa.correo.trim()) || w.text || ''}</div>
+    </div>
+  );
+
+  // Widget: Sitio web empresa
+  if (w.type === 'web_empresa') return (
+    <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, height: w.h, opacity: w.opacity, display: 'flex', alignItems: 'center', zIndex: zIdx }}>
+      <div style={{ ...txtStyle }}>{(empresa?.sitioWeb && empresa.sitioWeb.trim()) || (empresa?.web && empresa.web.trim()) || w.text || ''}</div>
+    </div>
+  );
+
+  // Reemplazar variables de paginación en texto libre
+  let textoFinal = w.text || '';
+  if (pagina && totalPaginas) {
+    textoFinal = textoFinal
+      .replace(/\{\{pagina\}\}/gi, pagina)
+      .replace(/\{\{totalPaginas\}\}/gi, totalPaginas)
+      .replace(/Página\s+\d+\s+de\s+\d+/gi, `Página ${pagina} de ${totalPaginas}`)
+      .replace(/Pág\.?\s*\d+\s*\/\s*\d+/gi, `Pág. ${pagina} / ${totalPaginas}`)
+      .replace(/Page\s+\d+\s+of\s+\d+/gi, `Page ${pagina} of ${totalPaginas}`)
+  }
+
   return (
     <div style={{ position: 'absolute', left: w.x, top: w.y, width: w.w, height: w.h, opacity: w.opacity, background: w.bg, borderRadius: w.borderRadius, border: w.borderWidth ? `${w.borderWidth}px solid ${w.borderColor}` : 'none', display: 'flex', alignItems: 'center', overflow: 'hidden', zIndex: zIdx }}>
-      <div style={{ ...txtStyle }}>{w.text || ''}</div>
+      <div style={{ ...txtStyle }}>{textoFinal}</div>
     </div>
   );
 }
 
 const HOJA_W = 595;
 
-function SeccionAbsoluta({ widgets, height, empresa, cot, op, opcionales, setOpcionales, esPdf, totales, cambiarOpcionFn }) {
+function SeccionAbsoluta({ widgets, height, empresa, cot, op, opcionales, setOpcionales, esPdf, totales, cambiarOpcionFn, pagina, totalPaginas }) {
   const sorted = [...widgets].sort((a, b) => {
     const ord = { fondo:0, separador:1, imagen:2 };
     return (ord[a.type]??10)-(ord[b.type]??10)||widgets.indexOf(a)-widgets.indexOf(b);
   });
   return (
-    <div style={{ position:'relative', width:HOJA_W, height, overflow:'hidden', background:'#fff', flexShrink:0 }}>
+    <div style={{ position:'relative', width:HOJA_W, height, overflow:'visible', background:'#fff', flexShrink:0 }}>
       {sorted.map((w,i) => {
         const zFijo = ({fondo:1,separador:2,imagen:3})[w.type] ?? (20+i);
         return <WidgetRenderer key={w.id||i} w={w} empresa={empresa} cot={cot} op={op}
           opcionales={opcionales} setOpcionales={setOpcionales} esPdf={esPdf} totales={totales}
-          cambiarOpcionFn={cambiarOpcionFn} zIdx={zFijo} />;
+          cambiarOpcionFn={cambiarOpcionFn} zIdx={zFijo} pagina={pagina} totalPaginas={totalPaginas} />;
       })}
     </div>
   );
@@ -423,14 +506,83 @@ function SeccionContenido({ widgets, empresa, cot, op, opcionales, setOpcionales
         if (w.type==='totales') return null;
 
         if (w.type==='terminos') {
-          const texto = cot?.terminos||w.text||'';
+          const texto = (cot?.terminos && cot.terminos.trim()) ? cot.terminos : (cot?.textoTerminos && cot.textoTerminos.trim()) ? cot.textoTerminos : (w.text||'');
           if (!texto) return null;
           return (
-            <div key={w.id||i} style={{marginTop:w.marginTop??0,marginBottom:w.marginBottom??8,padding:'6px 8px',background:w.bg||'transparent',borderRadius:w.borderRadius,border:w.borderWidth?`${w.borderWidth}px solid ${w.borderColor}`:'none',fontSize:w.fontSize,color:w.color,whiteSpace:'pre-wrap',lineHeight:1.6}}>
+            <div key={w.id||i} style={{marginTop:w.marginTop??30,marginBottom:w.marginBottom??8,padding:'6px 8px',background:w.bg||'transparent',borderRadius:w.borderRadius,border:w.borderWidth?`${w.borderWidth}px solid ${w.borderColor}`:'none',fontSize:w.fontSize,color:w.color,whiteSpace:'pre-wrap',lineHeight:1.6}}>
               {texto}
             </div>
           );
         }
+
+        // Widgets de datos (numero, fechas, cliente, vendedor, separador, texto libre) renderizados como flujo
+        if (w.type === 'numero_cot') return (
+          <div key={w.id||i} style={{marginTop:w.marginTop??0,marginBottom:w.marginBottom??8,padding:'4px 8px',fontSize:w.fontSize||15,fontWeight:w.fontWeight||'500',color:w.color||'#185FA5',background:w.bg||'transparent',borderRadius:w.borderRadius,border:w.borderWidth?`${w.borderWidth}px solid ${w.borderColor}`:'none'}}>
+            {cot?.numero || w.text}
+          </div>
+        );
+
+        if (w.type === 'fechas') return (
+          <div key={w.id||i} style={{marginTop:w.marginTop??0,marginBottom:w.marginBottom??8,padding:'4px 8px',fontSize:w.fontSize||11,color:w.color||'#555',background:w.bg||'transparent',borderRadius:w.borderRadius,border:w.borderWidth?`${w.borderWidth}px solid ${w.borderColor}`:'none',whiteSpace:'pre-wrap',lineHeight:1.6}}>
+            {`Fecha: ${cot?.fechaEmision || (cot?.creadoEn?.toDate ? cot.creadoEn.toDate().toISOString().split('T')[0] : '') || '—'}  ·  Vence: ${cot?.fechaVencimiento || '—'}  ·  Vendedor: ${(cot?.vendedorNombre || '—').split(' ')[0]}`}
+          </div>
+        );
+
+        if (w.type === 'datos_cliente') {
+          const lineas = [];
+          lineas.push(`Cliente: ${cot?.clienteNombre || '—'}`);
+          if (cot?.facturarEmpresa && cot?.empresaNombre) {
+            lineas.push(`Empresa: ${cot.empresaNombre}`);
+            if (cot?.empresaCedula) lineas.push(`Cédula jurídica: ${cot.empresaCedula}`);
+          } else if (cot?.empresaCedula || cot?.clienteCedula) {
+            lineas.push(`Cédula: ${cot?.empresaCedula || cot?.clienteCedula || '—'}`);
+          }
+          return (
+            <div key={w.id||i} style={{marginTop:w.marginTop??0,marginBottom:w.marginBottom??8,padding:'6px 8px',fontSize:w.fontSize||12,color:w.color||'#333',background:w.bg||'#f8fafc',borderRadius:w.borderRadius||6,border:w.borderWidth?`${w.borderWidth}px solid ${w.borderColor}`:'1px solid #e0e8f0',whiteSpace:'pre-wrap',lineHeight:1.6}}>
+              {lineas.join('\n')}
+            </div>
+          );
+        }
+
+        if (w.type === 'info_cotizacion') {
+          const nombre2 = cot?.clienteNombre || '—';
+          const empresa2 = cot?.empresaNombre || '';
+          const sede2 = cot?.sedeNombre || cot?.ubicacion || '';
+          const contacto2 = cot?.clienteTelefono || cot?.clienteWhatsapp || cot?.clienteEmail || cot?.contactoEmail || '';
+          const lin2 = empresa2 ? `Empresa: ${empresa2}` : contacto2 ? `Contacto: ${contacto2}` : `Cédula: ${cot?.empresaCedula || cot?.clienteCedula || '—'}`;
+          const lin3 = empresa2 && sede2 ? `Sede: ${sede2}` : empresa2 && cot?.empresaCedula ? `Cédula: ${cot.empresaCedula}` : empresa2 && contacto2 ? `Contacto: ${contacto2}` : `Ubicación: ${sede2 || '—'}`;
+          return (
+            <div key={w.id||i} style={{marginTop:w.marginTop??0,marginBottom:w.marginBottom??12,display:'flex',gap:12,padding:'8px 10px',background:w.bg||'#f8fafc',borderRadius:w.borderRadius||6,border:w.borderWidth?`${w.borderWidth}px solid ${w.borderColor}`:'1px solid #e0e8f0',fontSize:w.fontSize||11,color:w.color||'#555',lineHeight:1.6}}>
+              <div style={{flex:1}}>
+                <div>Nombre: {nombre2}</div>
+                <div>{lin2}</div>
+                <div>{lin3}</div>
+              </div>
+              <div style={{flex:1,textAlign:'right'}}>
+                <div>Fecha: {cot?.fechaEmision || (cot?.creadoEn?.toDate ? cot.creadoEn.toDate().toISOString().split('T')[0] : '') || '—'}</div>
+                <div>Vence: {cot?.fechaVencimiento || '—'}</div>
+                <div>Vendedor: {(cot?.vendedorNombre || '—').split(' ')[0]}</div>
+              </div>
+            </div>
+          );
+        }
+
+        if (w.type === 'vendedor') return (
+          <div key={w.id||i} style={{marginTop:w.marginTop??0,marginBottom:w.marginBottom??8,padding:'4px 8px',fontSize:w.fontSize||11,color:w.color||'#555',background:w.bg||'transparent',borderRadius:w.borderRadius}}>
+            {`Vendedor: ${(cot?.vendedorNombre || '—').split(' ')[0]}`}
+          </div>
+        );
+
+        if (w.type === 'separador') return (
+          <div key={w.id||i} style={{marginTop:w.marginTop??8,marginBottom:w.marginBottom??8,height:w.h||3,background:w.color||'#1a3a5c',opacity:w.opacity||1,borderRadius:w.borderRadius||0}} />
+        );
+
+        if (w.type === 'texto_libre') return (
+          <div key={w.id||i} style={{marginTop:w.marginTop??0,marginBottom:w.marginBottom??8,padding:'4px 8px',fontSize:w.fontSize||14,color:w.color||'#1a1a1a',fontWeight:w.fontWeight||'400',whiteSpace:'pre-wrap',lineHeight:1.5}}>
+            {w.text || ''}
+          </div>
+        );
+
         return null;
       })}
     </div>
@@ -438,30 +590,39 @@ function SeccionContenido({ widgets, empresa, cot, op, opcionales, setOpcionales
 }
 
 function PaginaWidget({ headerWidgets=[], contentWidgets=[], footerWidgets=[], headerH=110, footerH=40,
-  empresa, cot, op, opcionales, setOpcionales, esPdf, totales, onCambiarOpcion }) {
-  const props = {empresa,cot,op,opcionales,setOpcionales,esPdf,totales,cambiarOpcionFn:onCambiarOpcion};
+  empresa, cot, op, opcionales, setOpcionales, esPdf, totales, onCambiarOpcion, pagina, totalPaginas }) {
+  const props = {empresa,cot,op,opcionales,setOpcionales,esPdf,totales,cambiarOpcionFn:onCambiarOpcion,pagina,totalPaginas};
+  const innerRef = useRef(null);
+  const [innerH, setInnerH] = useState(400);
+  useEffect(() => {
+    if (!esPdf && innerRef.current) {
+      const ro = new ResizeObserver(entries => {
+        for (const e of entries) setInnerH(e.contentRect.height);
+      });
+      ro.observe(innerRef.current);
+      return () => ro.disconnect();
+    }
+  }, [esPdf]);
 
   if (esPdf) {
     return (
-      <div className="pagina-cot" style={{background:'#fff',width:HOJA_W,minHeight:842,fontFamily:'Inter,sans-serif',margin:'0 auto',display:'flex',flexDirection:'column'}}>
-        <SeccionAbsoluta {...props} widgets={headerWidgets} height={headerH} />
+      <div className="pagina-cot" style={{background:'#fff',width:HOJA_W,minHeight: Math.round(1056 / 1.371) - headerH - footerH,fontFamily:'Inter,sans-serif',margin:'0 auto'}}>
+        <div style={{height: headerH}} />
         <SeccionContenido {...props} widgets={contentWidgets} />
-        <div style={{flex:1}} />
-        <SeccionAbsoluta {...props} widgets={footerWidgets} height={footerH} />
+        <div style={{height: footerH + 20}} />
       </div>
     );
   }
 
   const escala = Math.min(1.33,(window.innerWidth>700?700:window.innerWidth)/HOJA_W);
   const anchoVisible = HOJA_W*escala;
-  const altoVisible = 842*escala;
+  const altoVisible = innerH*escala;
 
   return (
     <div style={{width:anchoVisible,height:altoVisible,margin:'0 auto 32px',boxShadow:'0 4px 24px rgba(0,0,0,.1)',borderRadius:4,overflow:'hidden',position:'relative'}}>
-      <div className="pagina-cot" style={{background:'#fff',width:HOJA_W,height:842,transform:`scale(${escala})`,transformOrigin:'top left',fontFamily:'Inter,sans-serif',display:'flex',flexDirection:'column',position:'absolute',top:0,left:0}}>
+      <div ref={innerRef} className="pagina-cot" style={{background:'#fff',width:HOJA_W,transform:`scale(${escala})`,transformOrigin:'top left',fontFamily:'Inter,sans-serif',display:'flex',flexDirection:'column',position:'absolute',top:0,left:0}}>
         <SeccionAbsoluta {...props} widgets={headerWidgets} height={headerH} />
         <SeccionContenido {...props} widgets={contentWidgets} />
-        <div style={{flex:1}} />
         <SeccionAbsoluta {...props} widgets={footerWidgets} height={footerH} />
       </div>
     </div>
@@ -695,7 +856,13 @@ export default function CotizacionPublica() {
           if (cfg.headerWidgets) {
             setHeaderWidgets(cfg.headerWidgets || []);
             setContentWidgets(cfg.contentWidgets || []);
-            setFooterWidgets(cfg.footerWidgets || []);
+            // Filtrar widgets del footer viejo (tienen texto estático de paginación)
+            const fw = (cfg.footerWidgets || []).filter(w => {
+              const txt = (w.text || '').toLowerCase();
+              if (txt.includes('página 1 de 1') || txt.includes('page 1 of 1') || txt.includes('pág. 1')) return false;
+              return true;
+            });
+            setFooterWidgets(fw);
             setHeaderH(cfg.headerH || 110);
             setFooterH(cfg.footerH || 40);
           } else if (cfg.widgets) {
@@ -703,6 +870,7 @@ export default function CotizacionPublica() {
             setHeaderWidgets(cfg.widgets.filter(w => !CONTENT_TYPES.includes(w.type) && (w.y||0) < 200));
             setContentWidgets(cfg.widgets.filter(w => CONTENT_TYPES.includes(w.type)));
             setFooterWidgets(cfg.widgets.filter(w => !CONTENT_TYPES.includes(w.type) && (w.y||0) >= 550));
+            setFooterH(40);
           }
         }
       }
@@ -986,10 +1154,10 @@ export default function CotizacionPublica() {
         </div>
       </div>
 
-      <div style={{ background: '#f0f2f5', padding: '32px 20px', fontFamily: 'Inter, sans-serif' }}>
+      <div className="cot-print-wrapper" style={{ background: '#f0f2f5', padding: '32px 20px', fontFamily: 'Inter, sans-serif' }}>
         {/* Portada */}
         {portadaActiva && (
-          <div className="portada-page" style={{ width: 794, margin: '0 auto 32px', boxShadow: '0 4px 24px rgba(0,0,0,.1)', borderRadius: 4, overflow: 'hidden' }}>
+          <div className="portada-page" style={{ width: HOJA_W, margin: '0 auto 32px', boxShadow: '0 4px 24px rgba(0,0,0,.1)', borderRadius: 4, overflow: 'hidden' }}>
             <img src={portadaActiva.url} alt="Portada" style={{ width: '100%', display: 'block' }} />
           </div>
         )}
@@ -1026,12 +1194,12 @@ export default function CotizacionPublica() {
               <div>
                 <PaginaWidget
                   headerWidgets={headerWidgets}
-                  contentWidgets={contentWidgets}
+                  contentWidgets={contentWidgets.filter(w => w.type !== 'terminos')}
                   footerWidgets={footerWidgets}
                   headerH={headerH}
                   footerH={footerH}
                   empresa={empresa}
-                  cot={cot}
+                  cot={{ ...cot, terminos }}
                   op={op}
                   opcionales={opcionales}
                   setOpcionales={setOpcionales}
@@ -1056,24 +1224,51 @@ export default function CotizacionPublica() {
               <img src={portadaActiva.url} alt="Portada" style={{ width: '100%', display: 'block' }} />
             </div>
           )}
-          {(cot.opciones || []).map(o => (
+          {(cot.opciones || []).map((o, idx) => (
             <PaginaWidget
               key={o.id}
               headerWidgets={headerWidgets}
-              contentWidgets={contentWidgets}
+              contentWidgets={contentWidgets.filter(w => w.type !== 'terminos')}
               footerWidgets={footerWidgets}
               headerH={headerH}
               footerH={footerH}
               empresa={empresa}
-              cot={cot}
+              cot={{ ...cot, terminos }}
               op={o}
               opcionales={{}}
               setOpcionales={() => {}}
               esPdf={true}
               totales={calcTotalesOp(o, cot, {})}
               onCambiarOpcion={() => {}}
+              pagina={idx + 1}
+              totalPaginas={(cot.opciones || []).length}
             />
           ))}
+          {/* Términos y condiciones — hoja separada */}
+          {terminos && (
+            <div className="pagina-terminos" style={{background:'#fff',width:HOJA_W,fontFamily:'Inter,sans-serif',margin:'0 auto'}}>
+              <div style={{height: headerH}} />
+              <div style={{padding:'12px 24px'}}>
+                <div style={{fontSize:11,fontWeight:700,color:'#1a3a5c',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:10}}>Términos y condiciones</div>
+                <div style={{fontSize:10,color:'#555',whiteSpace:'pre-wrap',lineHeight:1.7}}>
+                  {terminos}
+                </div>
+              </div>
+              <div style={{height: footerH + 20}} />
+            </div>
+          )}
+          {/* Header fijo — se repite en cada hoja impresa */}
+          <div className="print-header">
+            <SeccionAbsoluta widgets={headerWidgets} height={headerH} empresa={empresa}
+              cot={{ ...cot, terminos }} op={cot.opciones?.[0]} opcionales={{}} setOpcionales={() => {}}
+              esPdf={true} totales={{}} cambiarOpcionFn={() => {}} />
+          </div>
+          {/* Footer fijo — se repite en cada hoja impresa */}
+          <div className="print-footer">
+            <SeccionAbsoluta widgets={footerWidgets.filter(w => w.type !== 'paginacion' && !(w.text || '').match(/p[aá]g/i))} height={footerH} empresa={empresa}
+              cot={{ ...cot, terminos }} op={cot.opciones?.[0]} opcionales={{}} setOpcionales={() => {}}
+              esPdf={true} totales={{}} cambiarOpcionFn={() => {}} />
+          </div>
         </div>
       </div>
 

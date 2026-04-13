@@ -208,12 +208,6 @@ export default function FichaLeadPage() {
   const [tabAbajo, setTabAbajo] = useState('observaciones')
   const [waNumActivo, setWaNumActivo] = useState(null)
   const [msgInput, setMsgInput] = useState('')
-  const [chatOps, setChatOps] = useState([])
-  const [msgOps, setMsgOps] = useState('')
-  const [enviandoOps, setEnviandoOps] = useState(false)
-  const chatOpsRef = useRef()
-  const [panelIzqPct, setPanelIzqPct] = useState(65)
-  const resizingPanel = useRef(false)
   const [obsInput, setObsInput] = useState('')
   const [modalAccion, setModalAccion] = useState(null)
   const [accionForm, setAccionForm] = useState({})
@@ -282,31 +276,6 @@ export default function FichaLeadPage() {
   }, [lead?.contactoId, id])
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, [notas, tabChat, waNumActivo])
-
-  // Chat operaciones
-  useEffect(() => {
-    if (!id) return
-    const q = query(collection(db, `leads/${id}/chat_operaciones`), orderBy('creadoEn', 'asc'))
-    return onSnapshot(q, snap => {
-      setChatOps(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setTimeout(() => { if (chatOpsRef.current) chatOpsRef.current.scrollTop = chatOpsRef.current.scrollHeight }, 100)
-    })
-  }, [id])
-
-  const enviarMsgOps = async () => {
-    if (!msgOps.trim() || enviandoOps) return
-    setEnviandoOps(true)
-    try {
-      await addDoc(collection(db, `leads/${id}/chat_operaciones`), {
-        texto: msgOps.trim(),
-        autorId: usuario?.uid,
-        autorNombre: nombreUsuario,
-        creadoEn: serverTimestamp(),
-      })
-      setMsgOps('')
-    } catch (e) { console.error(e) }
-    finally { setEnviandoOps(false) }
-  }
 
   async function cargarSedes(empresaId) {
     try { const snap = await getDocs(collection(db, 'empresas', empresaId, 'sedes')); setSedes(snap.docs.map(d => ({ _id: d.id, ...d.data() }))) }
@@ -530,13 +499,10 @@ export default function FichaLeadPage() {
       </div>
 
       {/* CUERPO */}
-      <div style={{ flex:1, display:'flex', overflow:'hidden' }}
-        onMouseMove={e => { if (!resizingPanel.current) return; const rect = e.currentTarget.getBoundingClientRect(); const pct = ((e.clientX - rect.left) / rect.width) * 100; setPanelIzqPct(Math.min(80, Math.max(40, pct))) }}
-        onMouseUp={() => { resizingPanel.current = false }}
-        onMouseLeave={() => { resizingPanel.current = false }}>
+      <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
 
         {/* IZQUIERDA */}
-        <div id="panel-left" style={{ width:`${panelIzqPct}%`, overflowY:'auto', padding:'10px 12px', flexShrink:0 }}>
+        <div id="panel-left" style={{ width:'44%', minWidth:'35%', overflowY:'auto', padding:'10px 12px', flexShrink:0 }}>
           <TituloEditable value={lead.nombre} onSave={v => guardarCampo('nombre', v)} />
 
           {/* Empresa y contacto */}
@@ -736,10 +702,7 @@ export default function FichaLeadPage() {
         <div style={{ width:1, background:'#e0e4ea', flexShrink:0 }} />
 
         {/* DERECHA */}
-        {/* Divisor arrastrable */}
-        <div onMouseDown={() => { resizingPanel.current = true }} style={{ width:5, cursor:'col-resize', background:'#e0e4ea', flexShrink:0, transition:'background .15s' }} onMouseEnter={e => e.currentTarget.style.background='#378ADD'} onMouseLeave={e => { if(!resizingPanel.current) e.currentTarget.style.background='#e0e4ea' }} />
-
-        <div id="panel-right" style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#fff' }}>
+        <div id="panel-right" style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#fff', minWidth:'280px' }}>
           {/* Acciones rápidas */}
           <div style={{ padding:'8px 10px', display:'flex', flexWrap:'wrap', gap:4, flexShrink:0, background:'#f5f6fa' }}>
             {TIPOS_ACTIVIDAD.map(a => (
@@ -756,7 +719,6 @@ export default function FichaLeadPage() {
               { key:'interno',   label:'🔒 Interno' },
               { key:'whatsapp', label:'💬 WhatsApp' },
               { key:'email',    label:'📧 Email' },
-              { key:'operaciones', label:'🛠️ Operaciones' },
               { key:'historial',label:'🕐 Historial' },
             ].map(t => (
               <button key={t.key} onClick={() => setTabChat(t.key)} style={{ padding:'8px 10px', fontSize:11, cursor:'pointer', background:'none', border:'none', borderBottom:tabChat===t.key?'2px solid #378ADD':'2px solid transparent', color:tabChat===t.key?'#378ADD':'#aaa', fontWeight:tabChat===t.key?500:400, whiteSpace:'nowrap', fontFamily:'inherit' }}>{t.label}</button>
@@ -789,32 +751,6 @@ export default function FichaLeadPage() {
                   </div>
                 </div>
               ))}
-            </div>
-
-          ) : tabChat === 'operaciones' ? (
-            <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-              <div style={{ padding:'6px 12px', background:'#FAEEDA', borderBottom:'1px solid #EDD98A', fontSize:11, color:'#854F0B', flexShrink:0 }}>
-                🛠️ Chat con operaciones {lead.asignados?.length > 0 && <span style={{ marginLeft:6, fontWeight:500 }}>— Asignados: {lead.asignados.map(a => a.nombre).join(', ')}</span>}
-              </div>
-              <div ref={chatOpsRef} style={{ flex:1, overflowY:'auto', padding:'10px 12px', display:'flex', flexDirection:'column', gap:5, background:'#f8f9fb' }}>
-                {chatOps.length === 0 && <div style={{ textAlign:'center', color:'#bbb', fontSize:12, marginTop:30 }}>Sin mensajes con operaciones</div>}
-                {chatOps.map(msg => {
-                  const esMio = msg.autorId === usuario?.uid
-                  return (
-                    <div key={msg.id} style={{ display:'flex', flexDirection:'column', alignItems:esMio?'flex-end':'flex-start' }}>
-                      <div style={{ maxWidth:'80%', padding:'6px 10px', borderRadius:esMio?'10px 10px 2px 10px':'10px 10px 10px 2px', background:esMio?'#854F0B':'#fff', color:esMio?'#fff':'#1a1a1a', fontSize:12, lineHeight:1.5, border:esMio?'none':'1px solid #eaecf0' }}>
-                        {!esMio && <div style={{ fontSize:9, fontWeight:600, color:'#854F0B', marginBottom:2 }}>{msg.autorNombre}</div>}
-                        {msg.texto}
-                      </div>
-                      <span style={{ fontSize:8, color:'#bbb', marginTop:1 }}>{msg.creadoEn?.toDate ? (() => { const d=msg.creadoEn.toDate(); const diff=Math.floor((Date.now()-d.getTime())/60000); return diff<1?'ahora':diff<60?`${diff}min`:`${Math.floor(diff/60)}h` })() : ''}</span>
-                    </div>
-                  )
-                })}
-              </div>
-              <div style={{ padding:'8px 10px', borderTop:'1px solid #e0e4ea', display:'flex', gap:6, flexShrink:0 }}>
-                <input value={msgOps} onChange={e => setMsgOps(e.target.value)} onKeyDown={e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();enviarMsgOps()} }} placeholder="Mensaje a operaciones..." style={{ flex:1, padding:'6px 10px', border:'1px solid #dde3ed', borderRadius:7, fontSize:12, outline:'none', fontFamily:'inherit' }} />
-                <button onClick={enviarMsgOps} disabled={!msgOps.trim()||enviandoOps} style={{ padding:'6px 12px', border:'none', borderRadius:7, background:!msgOps.trim()?'#e0e0e0':'#854F0B', color:!msgOps.trim()?'#aaa':'#fff', fontSize:11, fontWeight:600, cursor:!msgOps.trim()?'not-allowed':'pointer', fontFamily:'inherit' }}>Enviar</button>
-              </div>
             </div>
 
           ) : tabChat === 'email' ? (

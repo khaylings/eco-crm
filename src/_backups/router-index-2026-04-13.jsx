@@ -58,10 +58,6 @@ import BancosPage from '../modules/bancos/pages/BancosPage'
 // ── Finanzas ───────────────────────────────────────────────────────────────────
 import FinanzasPage from '../modules/finanzas/pages/FinanzasPage'
 
-// ── Operaciones ───────────────────────────────────────────────────────────────
-import OperacionesPage from '../modules/operaciones/pages/OperacionesPage'
-import FichaOperacion from '../modules/operaciones/pages/FichaOperacion'
-
 // ── Configuración ──────────────────────────────────────────────────────────────
 import ConfiguracionPage from '../modules/configuracion/pages/ConfiguracionPage'
 
@@ -107,8 +103,6 @@ export default function AppRouter() {
 
           <Route path="inventario" element={<InventarioPage />} />
           <Route path="calendario" element={<CalendarioPage />} />
-          <Route path="operaciones" element={<OperacionesPage />} />
-          <Route path="operaciones/:id" element={<FichaOperacion />} />
           <Route path="ordenes-trabajo" element={<OrdenTrabajoPage />} />
 
           {/* ── Proyectos ── */}

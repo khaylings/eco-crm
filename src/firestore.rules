@@ -51,12 +51,14 @@ service cloud.firestore {
     // Usuarios del sistema
     // -------------------------------------------------------
     match /usuarios/{userId} {
-      // Cada usuario puede leer su propio perfil
-      allow read: if isAuth() && request.auth.uid == userId;
-      // Admins pueden leer todos los perfiles
-      allow read: if isAdmin();
+      // Cualquier usuario autenticado puede leer perfiles (necesario para mostrar nombres/avatares)
+      allow read: if isAuth();
       // Solo admins pueden crear/modificar usuarios
       allow write: if isAdmin();
+      // Subcolecciones del usuario (stickers, etc.) — solo el propio usuario
+      match /{subCol}/{subDoc} {
+        allow read, write: if isAuth() && request.auth.uid == userId;
+      }
     }
 
     // -------------------------------------------------------
@@ -124,10 +126,176 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------
-    // Denegar todo lo demás por defecto
+    // Catálogos individuales (origenes, sectores, tipos, etc.)
+    // -------------------------------------------------------
+    match /catalogo_origenes/{docId} {
+      allow read: if isAuth();
+      allow write: if isSupervisorOrAdmin();
+    }
+    match /catalogo_sectores/{docId} {
+      allow read: if isAuth();
+      allow write: if isSupervisorOrAdmin();
+    }
+    match /catalogo_tipos_equipo/{docId} {
+      allow read: if isAuth();
+      allow write: if isSupervisorOrAdmin();
+    }
+    match /catalogo_tipos_servicio/{docId} {
+      allow read: if isAuth();
+      allow write: if isSupervisorOrAdmin();
+    }
+    match /catalogo_estados_equipo/{docId} {
+      allow read: if isAuth();
+      allow write: if isSupervisorOrAdmin();
+    }
+    match /catalogo_filtros_calendario/{docId} {
+      allow read: if isAuth();
+      allow write: if isSupervisorOrAdmin();
+    }
+
+    // -------------------------------------------------------
+    // Chats internos
+    // -------------------------------------------------------
+    match /chats_internos/{chatId} {
+      allow read, write: if isAuth();
+      match /mensajes/{msgId} {
+        allow read, write: if isAuth();
+      }
+    }
+
+    // -------------------------------------------------------
+    // Pipeline CRM
+    // -------------------------------------------------------
+    match /pipeline_columnas/{docId} {
+      allow read: if isAuth();
+      allow write: if isSupervisorOrAdmin();
+    }
+
+    // -------------------------------------------------------
+    // Roles y permisos
+    // -------------------------------------------------------
+    match /roles/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // -------------------------------------------------------
+    // Facturación y finanzas
+    // -------------------------------------------------------
+    match /facturas/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /cuentas_bancarias/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /movimientos_bancarios/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /deudas/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    // -------------------------------------------------------
+    // Compras y gastos
+    // -------------------------------------------------------
+    match /ordenes_compra/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /gastos_recurrentes/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    // -------------------------------------------------------
+    // Proyectos
+    // -------------------------------------------------------
+    match /proyectos/{docId} {
+      allow read, write: if isAuth();
+      match /{subCol}/{subDoc} {
+        allow read, write: if isAuth();
+      }
+    }
+
+    // -------------------------------------------------------
+    // Activos (inventario físico / equipos)
+    // -------------------------------------------------------
+    match /activos/{docId} {
+      allow read, write: if isAuth();
+      match /{subCol}/{subDoc} {
+        allow read, write: if isAuth();
+      }
+    }
+
+    match /movimientosInventario/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    // -------------------------------------------------------
+    // Eventos de calendario
+    // -------------------------------------------------------
+    match /eventos/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    // -------------------------------------------------------
+    // Correo electrónico
+    // -------------------------------------------------------
+    match /emails/{docId} {
+      allow read, write: if isAuth();
+      match /{subCol}/{subDoc} {
+        allow read, write: if isAuth();
+      }
+    }
+
+    // -------------------------------------------------------
+    // Notificaciones internas
+    // -------------------------------------------------------
+    match /notificaciones/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /zumbidos/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    // -------------------------------------------------------
+    // Colecciones legacy / alias
+    // -------------------------------------------------------
+    match /clientes/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /config/{docId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // -------------------------------------------------------
+    // Solicitudes internas (bugs y mejoras)
+    // Cualquier usuario autenticado puede crear.
+    // Cada usuario solo lee las suyas; Super Administrador lee todas.
+    // Solo Super Administrador puede actualizar el estado.
+    // -------------------------------------------------------
+    match /solicitudes/{docId} {
+      allow create: if isAuth();
+      allow read: if isAuth() && (
+        resource.data.creadoPor == request.auth.uid ||
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'Super Administrador'
+      );
+      allow update: if isAuth() &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'Super Administrador';
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------
+    // Colecciones no listadas — acceso a usuarios autenticados
+    // Las colecciones sensibles tienen reglas explícitas arriba.
     // -------------------------------------------------------
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if isAuth();
     }
   }
 }

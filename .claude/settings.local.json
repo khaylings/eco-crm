@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(git rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(npm run:*)",
+      "Bash(npx vite:*)",
+      "Bash(firebase deploy:*)",
+      "Bash(xargs grep:*)",
+      "WebFetch(domain:eco-ingenieria-finanzas.web.app)",
+      "Bash(npm ls:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

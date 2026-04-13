@@ -23,19 +23,19 @@
  * ============================================================
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   collection, onSnapshot, query, orderBy, where,
   addDoc, updateDoc, deleteDoc, doc, getDocs, serverTimestamp, getDoc
 } from 'firebase/firestore'
 import { db } from '../../../firebase/config'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermisos } from '../../../hooks/usePermisos'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtUSD = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtCRC = (n) => '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
-const fmt    = (n, mon = 'CRC') => mon === 'USD' ? fmtUSD(n) : fmtCRC(n)
+const fmt    = (n, mon = 'USD') => mon === 'USD' ? fmtUSD(n) : fmtCRC(n)
 
 const toUSD = (monto, moneda, tc) => {
   if (!monto) return 0
@@ -124,19 +124,23 @@ const S = {
 }
 
 // ─── Modal abono CxC ──────────────────────────────────────────────────────────
-function ModalAbonoCxC({ factura, onGuardar, onCerrar }) {
-  const [form, setForm] = useState({ monto: '', metodo: 'Transferencia', fecha: today(), referencia: '', notas: '' })
+function ModalAbonoCxC({ factura, cuentas, onGuardar, onCerrar }) {
+  const [form, setForm] = useState({ monto: '', metodo: 'Transferencia', fecha: today(), referencia: '', notas: '', cuentaId: '' })
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
   const saldo = Number(factura.saldo ?? factura.total ?? 0)
   const upd   = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  const cuentasFiltradas = cuentas.filter(c => c.activa !== false)
+
   const handleGuardar = async () => {
     const monto = Number(form.monto)
     if (!monto || monto <= 0)       { setError('Ingresá un monto válido.'); return }
     if (monto > saldo + 0.01)       { setError(`El monto supera el saldo (${fmt(saldo, factura.moneda)})`); return }
+    if (!form.cuentaId)             { setError('Seleccioná la cuenta donde ingresa el pago.'); return }
     setError(''); setGuardando(true)
-    await onGuardar(factura, { ...form, monto })
+    const cuenta = cuentas.find(c => c.id === form.cuentaId)
+    await onGuardar(factura, { ...form, monto, cuentaNombre: cuenta?.nombre || '' })
     setGuardando(false)
   }
 
@@ -177,6 +181,15 @@ function ModalAbonoCxC({ factura, onGuardar, onCerrar }) {
           </div>
           <div><label style={S.lbl}>Referencia</label>
             <input style={S.inp2} placeholder="Número de transferencia..." value={form.referencia} onChange={e => upd('referencia', e.target.value)} /></div>
+          <div>
+            <label style={S.lbl}>Cuenta donde ingresa *</label>
+            <select style={S.inp2} value={form.cuentaId} onChange={e => upd('cuentaId', e.target.value)}>
+              <option value="">— Seleccioná una cuenta —</option>
+              {cuentasFiltradas.map(c => (
+                <option key={c.id} value={c.id}>{c.nombre} ({c.moneda}){c.ultimos4 ? ` •••• ${c.ultimos4}` : ''}</option>
+              ))}
+            </select>
+          </div>
           <div><label style={S.lbl}>Notas</label>
             <textarea style={{ ...S.inp2, resize: 'vertical' }} rows={2} value={form.notas} onChange={e => upd('notas', e.target.value)} /></div>
           {error && <div style={{ padding: '8px 12px', background: '#FCEBEB', borderRadius: 7, fontSize: 12, color: '#A32D2D' }}>{error}</div>}
@@ -192,26 +205,29 @@ function ModalAbonoCxC({ factura, onGuardar, onCerrar }) {
 }
 
 // ─── Modal abono deuda ────────────────────────────────────────────────────────
-function ModalAbonoDeuda({ deuda, onGuardar, onCerrar }) {
-  const [form, setForm] = useState({ monto: '', metodo: 'Transferencia', fecha: today(), notas: '' })
+function ModalAbonoDeuda({ deuda, cuentas = [], onGuardar, onCerrar }) {
+  const [form, setForm] = useState({ monto: '', metodo: 'Transferencia', fecha: today(), notas: '', cuentaId: '' })
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
   const saldo = Number(deuda.saldo ?? deuda.monto ?? 0)
   const upd   = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const cuentasFiltradas = cuentas.filter(c => c.activa !== false && c.tipo !== 'Tarjeta de crédito')
 
   const handleGuardar = async () => {
     const monto = Number(form.monto)
     if (!monto || monto <= 0)   { setError('Ingresá un monto válido.'); return }
     if (monto > saldo + 0.01)   { setError(`El monto supera el saldo (${fmt(saldo, deuda.moneda)})`); return }
+    if (!form.cuentaId)         { setError('Seleccioná la cuenta bancaria.'); return }
     setError(''); setGuardando(true)
-    await onGuardar(deuda, { ...form, monto })
+    const cuenta = cuentas.find(c => c.id === form.cuentaId)
+    await onGuardar(deuda, { ...form, monto, cuentaNombre: cuenta?.nombre || '' })
     setGuardando(false)
   }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(3px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={e => e.target === e.currentTarget && onCerrar()}>
-      <div style={{ background: '#fff', borderRadius: 14, width: '95%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
+      <div style={{ background: '#fff', borderRadius: 14, width: '95%', maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
         <div style={{ padding: '16px 20px', borderBottom: '0.5px solid rgba(0,0,0,.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div><div style={{ fontSize: 15, fontWeight: 600 }}>Abonar a deuda</div>
             <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{deuda.descripcion} · {deuda.tipo === 'yo_debo' ? 'Le debo a' : 'Me debe'}: {deuda.acreedor}</div></div>
@@ -230,6 +246,15 @@ function ModalAbonoDeuda({ deuda, onGuardar, onCerrar }) {
               placeholder="0.00" value={form.monto} onChange={e => upd('monto', e.target.value)} autoFocus />
             <button onClick={() => upd('monto', saldo.toFixed(2))} style={{ marginTop: 6, padding: '3px 10px', border: '0.5px solid rgba(0,0,0,.15)', borderRadius: 6, fontSize: 11, cursor: 'pointer', background: '#fff', fontFamily: 'inherit' }}>
               Saldar completo</button>
+          </div>
+          <div>
+            <label style={S.lbl}>{deuda.tipo === 'yo_debo' ? 'Cuenta de salida (de dónde sale el pago)' : 'Cuenta de entrada (dónde ingresa)'} *</label>
+            <select style={S.inp2} value={form.cuentaId} onChange={e => upd('cuentaId', e.target.value)}>
+              <option value="">— Seleccioná una cuenta —</option>
+              {cuentasFiltradas.map(c => (
+                <option key={c.id} value={c.id}>{c.nombre} ({c.moneda}){c.ultimos4 ? ` •••• ${c.ultimos4}` : ''}</option>
+              ))}
+            </select>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div><label style={S.lbl}>Método</label>
@@ -384,6 +409,230 @@ function ModalDeuda({ deuda, onGuardar, onCerrar }) {
 }
 
 // ─── Tab: Dashboard ───────────────────────────────────────────────────────────
+// ─── Gráfico: Flujo de Caja (Chart.js) ──────────────────────────────────────
+function GraficoFlujo({ facturas, ordenes, deudas, tc }) {
+  const canvasRef = useRef(null)
+  const chartRef = useRef(null)
+  const [periodo, setPeriodo] = useState('diario')
+  const [fechaHasta, setFechaHasta] = useState('')
+
+  const chartData = useMemo(() => {
+    const hoy = new Date(); hoy.setHours(0,0,0,0)
+
+    // Recopilar todos los movimientos pendientes
+    const allMovs = []
+    facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').forEach(f => {
+      if (f.fechaVencimiento) allMovs.push({ date: f.fechaVencimiento, usd: toUSD(f.saldo ?? 0, f.moneda, tc), type: 'cobrar' })
+    })
+    ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida').forEach(o => {
+      const fecha = o.fechaVencimientoPago || o.fecha
+      if (fecha) allMovs.push({ date: fecha, usd: toUSD(o.saldo ?? o.total ?? 0, o.moneda, tc), type: 'pagar' })
+    })
+    deudas.filter(d => d.estado === 'pendiente').forEach(d => {
+      const fecha = d.fechaVencimiento || d.fecha
+      if (fecha) allMovs.push({ date: fecha, usd: toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), type: d.tipo === 'yo_debo' ? 'pagar' : 'cobrar' })
+    })
+
+    // Generar labels según periodo
+    let labels = []
+    if (periodo === 'diario') {
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(hoy); d.setDate(d.getDate() + i)
+        labels.push(d.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' }))
+      }
+    } else if (periodo === 'semanal') {
+      for (let i = 0; i < 8; i++) {
+        const d = new Date(hoy); d.setDate(d.getDate() + i * 7)
+        const d2 = new Date(d); d2.setDate(d2.getDate() + 6)
+        labels.push(d.toLocaleDateString('es', { day: 'numeric', month: 'short' }) + ' – ' + d2.toLocaleDateString('es', { day: 'numeric', month: 'short' }))
+      }
+    } else {
+      const endD = fechaHasta ? new Date(fechaHasta + 'T00:00:00') : new Date(hoy)
+      endD.setHours(0,0,0,0)
+      if (endD <= hoy) endD.setDate(hoy.getDate() + 6)
+      const maxDays = Math.min(Math.round((endD - hoy) / 86400000) + 1, 60)
+      for (let i = 0; i < maxDays; i++) {
+        const d = new Date(hoy); d.setDate(d.getDate() + i)
+        labels.push(d.toLocaleDateString('es', { day: 'numeric', month: 'short' }))
+      }
+    }
+
+    const cobrarData = new Array(labels.length).fill(0)
+    const pagarData = new Array(labels.length).fill(0)
+
+    allMovs.forEach(m => {
+      const d = new Date(m.date + 'T00:00:00')
+      let idx = -1
+      if (periodo === 'diario') {
+        const diff = Math.round((d - hoy) / 86400000)
+        if (diff >= 0 && diff < 7) idx = diff
+      } else if (periodo === 'semanal') {
+        const diff = Math.round((d - hoy) / 86400000)
+        const week = Math.floor(diff / 7)
+        if (diff >= 0 && week < 8) idx = week
+      } else {
+        const diff = Math.round((d - hoy) / 86400000)
+        if (diff >= 0 && diff < labels.length) idx = diff
+      }
+      if (idx >= 0) {
+        if (m.type === 'cobrar') cobrarData[idx] += m.usd
+        else pagarData[idx] += m.usd
+      }
+    })
+
+    // Saldo acumulado (disponible actual + cobros - pagos)
+    const cobrado = facturas.reduce((s, f) => s + (f.pagos || []).reduce((ss, p) => ss + toUSD(p.monto, f.moneda, tc), 0), 0)
+    const pagado = ordenes.reduce((s, o) => s + (o.pagos || []).reduce((ss, p) => ss + toUSD(p.monto, o.moneda, tc), 0), 0)
+    const initBal = cobrado - pagado
+
+    const balData = []
+    let running = initBal
+    for (let i = 0; i < labels.length; i++) {
+      running += cobrarData[i] - pagarData[i]
+      balData.push(parseFloat(running.toFixed(2)))
+    }
+
+    return { labels, cobrarData, pagarData, balData }
+  }, [facturas, ordenes, deudas, tc, periodo, fechaHasta])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    import('chart.js').then(({ Chart, registerables }) => {
+      Chart.register(...registerables)
+
+      if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null }
+
+      chartRef.current = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: chartData.labels,
+          datasets: [
+            {
+              label: 'Por Cobrar',
+              data: chartData.cobrarData,
+              backgroundColor: 'rgba(37,99,235,.7)',
+              borderColor: '#2563eb',
+              borderWidth: 1.5,
+              borderRadius: 6,
+              order: 2,
+            },
+            {
+              label: 'Por Pagar',
+              data: chartData.pagarData,
+              backgroundColor: 'rgba(239,68,68,.7)',
+              borderColor: '#ef4444',
+              borderWidth: 1.5,
+              borderRadius: 6,
+              order: 2,
+            },
+            {
+              label: 'Saldo acumulado',
+              data: chartData.balData,
+              type: 'line',
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245,158,11,.08)',
+              borderWidth: 2.5,
+              pointRadius: 4,
+              pointBackgroundColor: '#f59e0b',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 2,
+              tension: 0.4,
+              fill: true,
+              order: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                font: { family: 'Inter, sans-serif', size: 12, weight: '600' },
+                usePointStyle: true,
+                padding: 20,
+              },
+            },
+            tooltip: {
+              backgroundColor: '#1e293b',
+              titleFont: { family: 'Inter, sans-serif', size: 12 },
+              bodyFont: { family: 'monospace', size: 12 },
+              padding: 12,
+              callbacks: {
+                label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { family: 'Inter, sans-serif', size: 11 }, color: '#64748b' },
+            },
+            y: {
+              grid: { color: 'rgba(0,0,0,.04)' },
+              ticks: {
+                font: { family: 'monospace', size: 11 },
+                color: '#64748b',
+                callback: v => '$' + (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v.toLocaleString('en-US')),
+              },
+              border: { display: false },
+            },
+          },
+        },
+      })
+    })
+
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null } }
+  }, [chartData])
+
+  const btnSt = (active) => ({
+    padding: '5px 12px', border: `1.5px solid ${active ? '#2563eb' : '#e2e8f0'}`,
+    borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+    background: active ? '#2563eb' : '#fff', color: active ? '#fff' : '#64748b',
+  })
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid rgba(0,0,0,.06)', boxShadow: '0 1px 3px rgba(0,0,0,.05)', overflow: 'hidden' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: '#94a3b8', margin: '0 0 3px' }}>Proyección</p>
+          <p style={{ fontSize: 15, fontWeight: 800, color: '#1e293b', margin: 0 }}>Flujo de Caja</p>
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setPeriodo('diario')} style={btnSt(periodo === 'diario')}>Diario</button>
+          <button onClick={() => setPeriodo('semanal')} style={btnSt(periodo === 'semanal')}>Semanal</button>
+          <button onClick={() => setPeriodo('personalizado')} style={btnSt(periodo === 'personalizado')}>Personalizado</button>
+          {periodo === 'personalizado' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>Hasta:</span>
+              <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+                style={{ border: '1.5px solid #e2e8f0', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontFamily: 'monospace', color: '#1e293b', outline: 'none' }} />
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{ padding: '20px 20px 16px', position: 'relative', height: 320 }}>
+        <canvas ref={canvasRef} />
+      </div>
+      <div style={{ padding: '10px 20px 16px', display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
+          <div style={{ width: 12, height: 12, borderRadius: 3, background: '#2563eb' }} /> Por cobrar (entradas)
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
+          <div style={{ width: 12, height: 12, borderRadius: 3, background: '#ef4444' }} /> Por pagar (salidas)
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
+          <div style={{ width: 12, height: 3, background: '#f59e0b', borderRadius: 2 }} /> Saldo acumulado
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TabDashboard({ facturas, ordenes, gastos, deudas, tc, setTab }) {
   const cxcPendiente = useMemo(() =>
     facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial')
@@ -451,6 +700,14 @@ function TabDashboard({ facturas, ordenes, gastos, deudas, tc, setTab }) {
           </div>
         </div>
       )}
+
+      {/* Gráfico Disponible vs Por Pagar */}
+      <GraficoFlujo facturas={facturas} ordenes={ordenes} deudas={deudas} tc={tc} />
+
+      {/* Tabla Flujo de caja */}
+      <div style={{ marginTop: 20 }}>
+        <TabFlujo facturas={facturas} ordenes={ordenes} tc={tc} />
+      </div>
     </div>
   )
 }
@@ -839,7 +1096,7 @@ function TabBalanceGeneral({ facturas, ordenes, deudas, tc, onActualizarPrecio }
 }
 
 // ─── Tab: CxC ─────────────────────────────────────────────────────────────────
-function TabCxC({ facturas, onAbono, navigate }) {
+function TabCxC({ facturas, cuentas, onAbono, navigate }) {
   const [busqueda, setBusqueda] = useState('')
   const [filtro,   setFiltro]   = useState('pendientes')
   const [modalFac, setModalFac] = useState(null)
@@ -859,7 +1116,7 @@ function TabCxC({ facturas, onAbono, navigate }) {
 
   return (
     <div>
-      {modalFac && <ModalAbonoCxC factura={modalFac} onGuardar={async (f, p) => { await onAbono(f, p); setModalFac(null) }} onCerrar={() => setModalFac(null)} />}
+      {modalFac && <ModalAbonoCxC factura={modalFac} cuentas={cuentas} onGuardar={async (f, p) => { await onAbono(f, p); setModalFac(null) }} onCerrar={() => setModalFac(null)} />}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <MetCard label="Por cobrar" valor={fmtUSD(totalPendiente)} palette={C.blue} sub={`${filtradas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').length} facturas pendientes`} />
         <MetCard label="Vencidas" valor={vencidas.length} palette={C.red} sub={vencidas.length > 0 ? `${fmtUSD(vencidas.reduce((s, f) => s + Number(f.saldo ?? 0), 0))} en riesgo` : 'Sin vencidas'} />
@@ -1216,7 +1473,7 @@ function TabGastosRecurrentes({ gastos, navigate }) {
                       {g.categoria && <Badge label={g.categoria} palette={C.gray} />}
                     </div>
                   </div>
-                  <p style={{ fontSize: 18, fontWeight: 700, color: C.primary, margin: '0 0 0 8px', flexShrink: 0 }}>{fmt(g.monto, g.moneda || 'CRC')}</p>
+                  <p style={{ fontSize: 18, fontWeight: 700, color: C.primary, margin: '0 0 0 8px', flexShrink: 0 }}>{fmt(g.monto, g.moneda || 'USD')}</p>
                 </div>
                 {g.proveedor && <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 8px' }}>🏢 {g.proveedor}</p>}
                 <div style={{ padding: '8px 10px', borderRadius: 7, marginBottom: 12, background: muyUrgente ? '#FCEBEB' : urgente ? '#FAEEDA' : '#f8f9fb' }}>
@@ -1237,7 +1494,7 @@ function TabGastosRecurrentes({ gastos, navigate }) {
 }
 
 // ─── Tab: Deudas ──────────────────────────────────────────────────────────────
-function TabDeudas({ deudas, onNueva, onEditar, onEliminar, onMarcarPagada, onAbono }) {
+function TabDeudas({ deudas, cuentas, onNueva, onEditar, onEliminar, onMarcarPagada, onAbono }) {
   const [filtro,      setFiltro]      = useState('pendientes')
   const [confirmElim, setConfirmElim] = useState(null)
   const [modalAbono,  setModalAbono]  = useState(null)
@@ -1254,7 +1511,7 @@ function TabDeudas({ deudas, onNueva, onEditar, onEliminar, onMarcarPagada, onAb
   return (
     <div>
       {modalAbono && (
-        <ModalAbonoDeuda deuda={modalAbono} onGuardar={async (d, abono) => { await onAbono(d, abono); setModalAbono(null) }} onCerrar={() => setModalAbono(null)} />
+        <ModalAbonoDeuda deuda={modalAbono} cuentas={cuentas} onGuardar={async (d, abono) => { await onAbono(d, abono); setModalAbono(null) }} onCerrar={() => setModalAbono(null)} />
       )}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <MetCard label="Yo debo (pasivos)" valor={`${yoDebo.length} deuda${yoDebo.length !== 1 ? 's' : ''}`} palette={C.red} sub={yoDebo.length > 0 ? fmtUSD(yoDebo.reduce((s, d) => s + Number(d.saldo ?? d.monto ?? 0), 0)) : ''} />
@@ -1454,6 +1711,97 @@ function TabFlujo({ facturas, ordenes, tc }) {
   )
 }
 
+// ─── Tab Bancos ───────────────────────────────────────────────────────────────
+function TabBancos({ cuentas, cuentasLoaded, tc }) {
+  const saldoPorCuenta = useMemo(() => {
+    // Calculamos el saldo de cada cuenta usando saldoInicial (sin movimientos aquí — los movimientos los tiene BancosPage)
+    // Mostramos el saldo inicial como base visual; para saldo real el usuario va a /bancos
+    const map = {}
+    cuentas.forEach(c => { map[c.id] = Number(c.saldoInicial || 0) })
+    return map
+  }, [cuentas])
+
+  const totales = useMemo(() => {
+    let totalCRC = 0, totalUSD = 0
+    cuentas.filter(c => c.activa !== false).forEach(c => {
+      const s = saldoPorCuenta[c.id] || 0
+      if (c.moneda === 'USD') totalUSD += s
+      else totalCRC += s
+    })
+    return { totalCRC, totalUSD, totalEnCRC: totalCRC + totalUSD * (tc || 520) }
+  }, [cuentas, saldoPorCuenta, tc])
+
+  const TIPO_COLOR = {
+    'Cuenta corriente':   { bg: '#E6F1FB', color: '#185FA5' },
+    'Cuenta de ahorros':  { bg: '#EAF3DE', color: '#3B6D11' },
+    'Tarjeta de crédito': { bg: '#FCEBEB', color: '#A32D2D' },
+    'Tarjeta débito':     { bg: '#FAEEDA', color: '#854F0B' },
+    'Caja chica':         { bg: '#EEEDFE', color: '#3C3489' },
+    'Otro':               { bg: '#F1EFE8', color: '#5F5E5A' },
+  }
+
+  const activas = cuentas.filter(c => c.activa !== false)
+
+  return (
+    <div>
+      {/* Totales */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div style={{ background: '#fff', border: '0.5px solid rgba(0,0,0,.08)', borderRadius: 10, padding: '16px 22px', flex: 1, minWidth: 180 }}>
+          <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>Total en CRC</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.primary }}>₡{totales.totalCRC.toLocaleString('es-CR', { minimumFractionDigits: 0 })}</div>
+        </div>
+        <div style={{ background: '#fff', border: '0.5px solid rgba(0,0,0,.08)', borderRadius: 10, padding: '16px 22px', flex: 1, minWidth: 180 }}>
+          <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>Total en USD</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.primary }}>${totales.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+        </div>
+        <div style={{ background: '#fff', border: '0.5px solid rgba(0,0,0,.08)', borderRadius: 10, padding: '16px 22px', flex: 1, minWidth: 180 }}>
+          <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>Equivalente total (CRC)</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.green.text }}>₡{totales.totalEnCRC.toLocaleString('es-CR', { minimumFractionDigits: 0 })}</div>
+        </div>
+      </div>
+
+      {/* Cuentas */}
+      {!cuentasLoaded ? (
+        <div style={{ padding: '48px 20px', textAlign: 'center', color: '#bbb', fontSize: 13 }}>Cargando cuentas...</div>
+      ) : activas.length === 0 ? (
+        <div style={{ padding: '48px 20px', textAlign: 'center', color: '#bbb', fontSize: 13 }}>
+          No hay cuentas bancarias. Creá una en el módulo de Bancos.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+          {activas.map(c => {
+            const saldo = saldoPorCuenta[c.id] || 0
+            const tc_ = TIPO_COLOR[c.tipo] || TIPO_COLOR['Otro']
+            return (
+              <div key={c.id} style={{ background: '#fff', border: '0.5px solid rgba(0,0,0,.08)', borderRadius: 12, padding: '18px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: tc_.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>🏦</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nombre}</div>
+                    <div style={{ fontSize: 11, color: '#888' }}>{c.tipo}{c.ultimos4 ? ` •••• ${c.ultimos4}` : ''}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 2 }}>Saldo</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: saldo >= 0 ? C.green.text : C.red.text }}>
+                      {c.moneda === 'USD' ? '$' : '₡'}{Math.abs(saldo).toLocaleString(c.moneda === 'USD' ? 'en-US' : 'es-CR', { minimumFractionDigits: c.moneda === 'USD' ? 2 : 0 })}
+                    </div>
+                  </div>
+                  <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 500, background: tc_.bg, color: tc_.color }}>{c.tipo}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <p style={{ fontSize: 11, color: '#bbb', marginTop: 16, textAlign: 'center' }}>
+        Los saldos reflejan el saldo inicial de cada cuenta. Para ver movimientos detallados, usá el módulo <strong>Bancos</strong>.
+      </p>
+    </div>
+  )
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function FinanzasPage() {
   const navigate       = useNavigate()
@@ -1469,14 +1817,22 @@ export default function FinanzasPage() {
     )
   }
 
-  const [tab,       setTab]       = useState('dashboard')
+  const location = useLocation()
+  const [tab,       setTab]       = useState(() => new URLSearchParams(location.search).get('tab') || 'flujo')
   const [facturas,  setFacturas]  = useState([])
   const [ordenes,   setOrdenes]   = useState([])
   const [gastos,    setGastos]    = useState([])
   const [deudas,    setDeudas]    = useState([])
   const [proveedores, setProveedores] = useState([])
+  const [cuentas,        setCuentas]        = useState([])
+  const [cuentasLoaded,  setCuentasLoaded]  = useState(false)
   const [tc,        setTc]        = useState(520)
   const [loading,   setLoading]   = useState(true)
+
+  useEffect(() => {
+    const t = new URLSearchParams(location.search).get('tab')
+    if (t) setTab(t)
+  }, [location.search])
 
   // Modal deuda
   const [modalDeuda,    setModalDeuda]    = useState(false)
@@ -1512,7 +1868,11 @@ export default function FinanzasPage() {
     const u6 = onSnapshot(doc(db, 'configuracion', 'tasas'), snap => {
       if (snap.exists()) { const v = snap.data().venta || snap.data().compra; if (v) setTc(Number(v)) }
     })
-    return () => { u1(); u2(); u3(); u4(); u5(); u6() }
+    const u7 = onSnapshot(collection(db, 'cuentas_bancarias'), snap => {
+      setCuentas(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setCuentasLoaded(true)
+    })
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7() }
   }, [])
 
   // ── Acciones CxC ──────────────────────────────────────────────────────────────
@@ -1522,6 +1882,23 @@ export default function FinanzasPage() {
     const saldo       = Math.max(0, Number(factura.total) - totalPagado)
     const estado      = saldo <= 0 ? 'Pagada' : totalPagado > 0 ? 'Parcial' : 'Sin Pagar'
     await updateDoc(doc(db, 'facturas', factura.id), { pagos: nuevosPagos, totalPagado, saldo, estado, actualizadoEn: serverTimestamp() })
+    // Registrar ingreso en movimientos bancarios
+    if (pago.cuentaId) {
+      await addDoc(collection(db, 'movimientos_bancarios'), {
+        tipo:           'ingreso',
+        cuentaId:       pago.cuentaId,
+        moneda:         factura.moneda || 'USD',
+        monto:          Number(pago.monto),
+        fecha:          pago.fecha,
+        descripcion:    `Abono factura ${factura.numero} — ${factura.clienteNombre}`,
+        categoria:      'Ventas / Cobros',
+        metodo:         pago.metodo,
+        referencia:     pago.referencia || '',
+        facturaId:      factura.id,
+        facturaNumero:  factura.numero,
+        creadoEn:       serverTimestamp(),
+      })
+    }
   }, [])
 
   // ── Acciones Deudas ───────────────────────────────────────────────────────────
@@ -1549,19 +1926,32 @@ export default function FinanzasPage() {
     const nuevoSaldo    = Math.max(0, Number(deuda.monto) - totalAbonado)
     const nuevoEstado   = nuevoSaldo <= 0 ? 'pagada' : 'pendiente'
     await updateDoc(doc(db, 'deudas', deuda.id), { abonos: nuevosAbonos, saldo: nuevoSaldo, estado: nuevoEstado, actualizadoEn: serverTimestamp() })
-  }, [])
+    // Generar movimiento bancario automático
+    if (abono.cuentaId) {
+      const esYoDebo = deuda.tipo === 'yo_debo'
+      const cuenta = cuentas.find(c => c.id === abono.cuentaId)
+      await addDoc(collection(db, 'movimientos_bancarios'), {
+        tipo: esYoDebo ? 'egreso' : 'ingreso',
+        cuentaId: abono.cuentaId,
+        monto: abono.monto,
+        moneda: cuenta?.moneda || deuda.moneda || 'USD',
+        fecha: abono.fecha,
+        descripcion: `Abono deuda — ${deuda.descripcion} (${deuda.acreedor})`,
+        categoria: esYoDebo ? 'Compras / Pagos' : 'Ventas / Cobros',
+        metodo: abono.metodo || 'Transferencia',
+        referencia: abono.notas || '',
+        deudaId: deuda.id,
+        registradoPor: 'Sistema',
+        creadoEn: serverTimestamp(),
+      })
+    }
+  }, [cuentas])
 
   const TABS = [
-    { id: 'dashboard',        label: '⬛ Dashboard'          },
-    { id: 'estado_resultados',label: '📈 Estado Resultados'  },
-    { id: 'balance',          label: '⚖️ Balance General'    },
+    { id: 'flujo',            label: '💸 Flujo de Caja'      },
     { id: 'cxc',              label: '↑ CxC'                 },
     { id: 'cxp',              label: '↓ CxP'                 },
-    { id: 'compras',          label: '🛒 Compras'            },
-    { id: 'proveedores',      label: '🏢 Proveedores'        },
-    { id: 'gastos',           label: '🔄 Gastos'             },
     { id: 'deudas',           label: '🤝 Deudas'             },
-    { id: 'flujo',            label: '💸 Flujo de Caja'      },
   ]
 
   return (
@@ -1571,15 +1961,33 @@ export default function FinanzasPage() {
         <ModalDeuda deuda={editandoDeuda} onGuardar={handleGuardarDeuda} onCerrar={() => { setModalDeuda(false); setEditandoDeuda(null) }} />
       )}
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: C.primary, margin: 0 }}>Finanzas</h1>
-          <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>T/C activo: ₡{tc} · Solo administradores</p>
+      {/* Header + Métricas */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.primary, margin: 0 }}>Finanzas</h1>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {!loading && (() => {
+            const cxc = facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').reduce((s, f) => s + toUSD(f.saldo ?? 0, f.moneda, tc), 0)
+            const cxp = ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida').reduce((s, o) => s + toUSD(o.saldo ?? o.total ?? 0, o.moneda, tc), 0)
+            const pas = deudas.filter(d => d.tipo === 'yo_debo' && d.estado === 'pendiente').reduce((s, d) => s + toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
+            const act = deudas.filter(d => d.tipo === 'empresa_debe' && d.estado === 'pendiente').reduce((s, d) => s + toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
+            const neta = cxc + act - cxp - pas
+            return [
+              { label: 'CxC', valor: fmtUSD(cxc), color: '#3B6D11' },
+              { label: 'CxP', valor: fmtUSD(cxp), color: '#854F0B' },
+              { label: 'Pasivos', valor: fmtUSD(pas), color: '#A32D2D' },
+              { label: 'Activos', valor: fmtUSD(act), color: '#185FA5' },
+              { label: 'Neta', valor: `${neta >= 0 ? '+' : ''}${fmtUSD(neta)}`, color: neta >= 0 ? '#3B6D11' : '#A32D2D' },
+            ].map(m => (
+              <div key={m.label} style={{ background: '#fff', border: `1.5px solid ${m.color}33`, borderRadius: 8, padding: '4px 12px', textAlign: 'center', minWidth: 80 }}>
+                <p style={{ fontSize: 9, color: '#888', margin: 0, textTransform: 'uppercase', letterSpacing: '.5px' }}>{m.label}</p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: m.color, margin: 0 }}>{m.valor}</p>
+              </div>
+            ))
+          })()}
+          {tab === 'deudas' && (
+            <button onClick={() => { setEditandoDeuda(null); setModalDeuda(true) }} style={{ padding: '8px 18px', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: C.primary, color: '#fff', fontFamily: 'inherit' }}>+ Nueva deuda</button>
+          )}
         </div>
-        {tab === 'deudas' && (
-          <button onClick={() => { setEditandoDeuda(null); setModalDeuda(true) }} style={{ padding: '8px 18px', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: C.primary, color: '#fff', fontFamily: 'inherit' }}>+ Nueva deuda</button>
-        )}
       </div>
 
       {/* Tabs */}
@@ -1596,16 +2004,13 @@ export default function FinanzasPage() {
         </div>
       ) : (
         <>
-          {tab === 'dashboard'         && <TabDashboard         facturas={facturas} ordenes={ordenes} gastos={gastos} deudas={deudas} tc={tc} setTab={setTab} />}
           {tab === 'estado_resultados' && <TabEstadoResultados  facturas={facturas} ordenes={ordenes} gastos={gastos} tc={tc} />}
           {tab === 'balance'           && <TabBalanceGeneral    facturas={facturas} ordenes={ordenes} deudas={deudas} tc={tc} />}
-          {tab === 'cxc'               && <TabCxC               facturas={facturas} onAbono={handleAbonoCxC} navigate={navigate} />}
+          {tab === 'bancos'            && <TabBancos            cuentas={cuentas} cuentasLoaded={cuentasLoaded} tc={tc} />}
+          {tab === 'flujo'             && <TabDashboard          facturas={facturas} ordenes={ordenes} gastos={gastos} deudas={deudas} tc={tc} setTab={setTab} />}
+          {tab === 'cxc'               && <TabCxC               facturas={facturas} cuentas={cuentas} onAbono={handleAbonoCxC} navigate={navigate} />}
           {tab === 'cxp'               && <TabCxP               ordenes={ordenes} navigate={navigate} />}
-          {tab === 'compras'           && <TabCompras           ordenes={ordenes} navigate={navigate} />}
-          {tab === 'proveedores'       && <TabProveedores       proveedores={proveedores} />}
-          {tab === 'gastos'            && <TabGastosRecurrentes gastos={gastos} navigate={navigate} />}
-          {tab === 'deudas'            && <TabDeudas            deudas={deudas} onNueva={() => { setEditandoDeuda(null); setModalDeuda(true) }} onEditar={d => { setEditandoDeuda(d); setModalDeuda(true) }} onEliminar={handleEliminarDeuda} onMarcarPagada={handleMarcarPagadaDeuda} onAbono={handleAbonoDeuda} />}
-          {tab === 'flujo'             && <TabFlujo             facturas={facturas} ordenes={ordenes} tc={tc} />}
+          {tab === 'deudas'            && <TabDeudas            deudas={deudas} cuentas={cuentas} onNueva={() => { setEditandoDeuda(null); setModalDeuda(true) }} onEditar={d => { setEditandoDeuda(d); setModalDeuda(true) }} onEliminar={handleEliminarDeuda} onMarcarPagada={handleMarcarPagadaDeuda} onAbono={handleAbonoDeuda} />}
         </>
       )}
     </div>

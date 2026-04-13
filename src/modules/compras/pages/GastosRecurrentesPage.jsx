@@ -50,7 +50,7 @@ const proximaFecha = (diaDelMes) => {
   const anio = hoy.getFullYear()
   let vence  = new Date(anio, mes, diaDelMes)
   if (vence <= hoy) vence = new Date(anio, mes + 1, diaDelMes)
-  return vence.toLocaleDateString('es-CR', { day: 'numeric', month: 'long' })
+  return vence.toLocaleDateString('es-CR', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 // ── Modal gasto recurrente ────────────────────────────────────────────────────

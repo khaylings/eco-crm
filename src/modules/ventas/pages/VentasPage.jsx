@@ -8,7 +8,7 @@
  * ============================================================
  */
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   collection, getDocs, addDoc, serverTimestamp,
   query, orderBy, doc, getDoc, updateDoc, runTransaction
@@ -103,6 +103,12 @@ export default function VentasPage() {
     setCreando(true);
     try {
       const numero = await generarConsecutivo("prefijoCotizacion", "CTO");
+      // Cargar términos predeterminados de la plantilla
+      let terminosDefault = "";
+      try {
+        const pltSnap = await getDoc(doc(db, "configuracion", "plantilla_cotizacion"));
+        if (pltSnap.exists()) terminosDefault = pltSnap.data().terminosCotizacion || "";
+      } catch {}
       const ref = await addDoc(collection(db, "cotizaciones"), {
         numero,
         estado: "Borrador",
@@ -122,6 +128,7 @@ export default function VentasPage() {
         descuentoGlobal: 0,
         descuentoGlobalTipo: "%",
         observaciones: "",
+        terminos: terminosDefault,
         fichasTecnicas: [],
         fechaEmision: new Date().toISOString().split("T")[0],
         fechaVencimiento: new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0],
@@ -335,8 +342,8 @@ export default function VentasPage() {
                 const mostrarError  = errorMsg?.cotId === c.id;
 
                 return (
-                  <>
-                    <tr key={c.id} style={{ cursor: "pointer" }}
+                  <React.Fragment key={c.id}>
+                    <tr style={{ cursor: "pointer" }}
                       onClick={() => navigate(`/ventas/cotizacion/${c.id}`)}
                       onMouseEnter={e => e.currentTarget.style.background = "#fafafa"}
                       onMouseLeave={e => e.currentTarget.style.background = ""}
@@ -398,7 +405,7 @@ export default function VentasPage() {
                       </td>
                     </tr>
                     {mostrarError && (
-                      <tr key={`err-${c.id}`}>
+                      <tr>
                         <td colSpan={puedeVerPrecios ? 9 : 8} style={{ padding: "0 14px 10px", background: "#fff" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#FCEBEB", border: "0.5px solid #F7C1C1", borderRadius: 7, fontSize: 12, color: "#A32D2D" }}>
                             <span style={{ fontWeight: 600 }}>⚠</span>
@@ -408,7 +415,7 @@ export default function VentasPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>

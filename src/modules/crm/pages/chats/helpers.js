@@ -8,7 +8,7 @@ export function formatFecha(ts) {
   const hoy = new Date()
   if (d.toDateString() === hoy.toDateString())
     return d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
-  return d.toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit' })
+  return d.toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 export function iniciales(nombre = '') {

@@ -42,7 +42,6 @@ const NAV_ITEMS_BASE = [
       { path: '/inventario', label: 'Inventario' },
     ]
   },
-  { path: '/operaciones',     label: 'Operaciones' },
   { path: '/ordenes-trabajo', label: 'Ord. Trabajo' },
   { path: '/calendario',      label: 'Calendario' },
   { path: '/configuracion',   label: 'Configuración' },
@@ -61,7 +60,6 @@ const MODULOS_GRID_BASE = [
   { path: '/inventario',      label: 'Inventario',    icono: '📦', color: '#534AB7', bg: '#EEEDFE' },
   { path: '/facturacion',     label: 'Facturación',   icono: '🧾', color: '#3B6D11', bg: '#EAF3DE' },
   { path: '/bancos',          label: 'Bancos',        icono: '🏦', color: '#185FA5', bg: '#E6F1FB' },
-  { path: '/operaciones',     label: 'Operaciones',    icono: '🛠️', color: '#854F0B', bg: '#FAEEDA' },
   { path: '/ordenes-trabajo', label: 'Ord. Trabajo',  icono: '🔧', color: '#5F5E5A', bg: '#F1EFE8' },
   { path: '/calendario',      label: 'Calendario',    icono: '📅', color: '#993C1D', bg: '#FAECE7' },
   { path: '/configuracion',   label: 'Configuración', icono: '⚙️', color: '#5F5E5A', bg: '#F1EFE8' },

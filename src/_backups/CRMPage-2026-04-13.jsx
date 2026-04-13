@@ -8,18 +8,14 @@
  * ============================================================
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   obtenerLeads, obtenerColumnas, crearColumna, actualizarColumna,
   eliminarColumna, actualizarLead, eliminarLead, crearLead,
   obtenerContactos, obtenerEmpresas, obtenerOrigenes
 } from '../../../firebase/contactos'
-import { doc, getDoc, collection, getDocs, serverTimestamp } from 'firebase/firestore'
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { db, storage } from '../../../firebase/config'
 import { usePermisos } from '../../../hooks/usePermisos'
-import { crearNotificacion } from '../../../services/notificaciones'
 import FichaLead from '../../leads/components/FichaLead'
 
 const PRIORIDADES = [
@@ -62,18 +58,6 @@ export default function CRMPage() {
   const [mostrarNuevaColumna, setMostrarNuevaColumna] = useState(false)
   const [dragging, setDragging] = useState(null)
   const [dragOver, setDragOver] = useState(null)
-  const [draggingCol, setDraggingCol] = useState(null)
-  const [dragOverCol, setDragOverCol] = useState(null)
-
-  // ── Operaciones: config + modal ──
-  const [configOps, setConfigOps] = useState(null)
-  const [modalOps, setModalOps] = useState(null) // { leadId, columnaId }
-  const [formOps, setFormOps] = useState({ ubicacion: '', direccion: '', casa: '', color: '', enlace: '', observaciones: '' })
-  const [fotoOps, setFotoOps] = useState(null)
-  const [fotoPreview, setFotoPreview] = useState(null)
-  const [guardandoOps, setGuardandoOps] = useState(false)
-  const [usuariosOps, setUsuariosOps] = useState([])
-  const fotoRef = useRef()
   const [cargando, setCargando] = useState(true)
 
   const cargar = async () => {
@@ -91,18 +75,6 @@ export default function CRMPage() {
   }
 
   useEffect(() => { cargar() }, [])
-
-  // Cargar config de operaciones + usuarios para notificaciones
-  useEffect(() => {
-    getDoc(doc(db, 'configuracion', 'operaciones')).then(snap => {
-      if (snap.exists()) setConfigOps(snap.data())
-    })
-    getDocs(collection(db, 'usuarios')).then(snap => {
-      setUsuariosOps(snap.docs.map(d => ({ uid: d.id, ...d.data() })))
-    })
-  }, [])
-
-  const columnasOpsIds = configOps?.columnasOperacionesIds || (configOps?.columnaOperacionesId ? [configOps.columnaOperacionesId] : [])
 
   // ── Filtrado con permisos ─────────────────────────────────────────────────
   const leadsFiltrados = leads.filter(l => {
@@ -146,22 +118,6 @@ export default function CRMPage() {
     cargar()
   }
 
-  const handleDropColumna = async (destColId) => {
-    if (!draggingCol || draggingCol === destColId) { setDraggingCol(null); setDragOverCol(null); return }
-    const fromIdx = columnas.findIndex(c => c.id === draggingCol)
-    const toIdx = columnas.findIndex(c => c.id === destColId)
-    if (fromIdx === -1 || toIdx === -1) return
-    // Reordenar: asignar nuevos valores de orden
-    const reordenadas = [...columnas]
-    const [movida] = reordenadas.splice(fromIdx, 1)
-    reordenadas.splice(toIdx, 0, movida)
-    for (let i = 0; i < reordenadas.length; i++) {
-      if (reordenadas[i].orden !== i) await actualizarColumna(reordenadas[i].id, { orden: i })
-    }
-    setDraggingCol(null); setDragOverCol(null)
-    cargar()
-  }
-
   const borrarColumna = async (id) => {
     const tieneLeads = leads.some(l => l.columnaId === id)
     if (tieneLeads) return alert('Mueve los leads antes de eliminar esta columna')
@@ -172,75 +128,8 @@ export default function CRMPage() {
 
   const moverLead = async (leadId, nuevaColumnaId) => {
     if (!puedeEditar) return
-    // Si la columna destino es de operaciones, abrir modal
-    if (columnasOpsIds.includes(nuevaColumnaId)) {
-      const lead = leads.find(l => l.id === leadId)
-      if (lead && !lead.estadoOperacion) {
-        setModalOps({ leadId, columnaId: nuevaColumnaId, lead })
-        setFormOps({ ubicacion: '', direccion: '', casa: '', color: '', enlace: '', observaciones: '' })
-        setFotoOps(null); setFotoPreview(null)
-        return // No mover hasta que llene el modal
-      }
-    }
     await actualizarLead(leadId, { columnaId: nuevaColumnaId })
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, columnaId: nuevaColumnaId } : l))
-  }
-
-  const guardarOperaciones = async () => {
-    if (!formOps.ubicacion.trim() || !formOps.direccion.trim()) {
-      alert('Ubicación y dirección son obligatorios')
-      return
-    }
-    setGuardandoOps(true)
-    try {
-      let fotoUrl = ''
-      if (fotoOps) {
-        const sRef = storageRef(storage, `operaciones/${Date.now()}_${fotoOps.name}`)
-        const snap = await uploadBytes(sRef, fotoOps)
-        fotoUrl = await getDownloadURL(snap.ref)
-      }
-
-      const payload = {
-        columnaId: modalOps.columnaId,
-        estadoOperacion: 'pendiente',
-        ubicacion: formOps.ubicacion.trim(),
-        direccion: formOps.direccion.trim(),
-        casa: formOps.casa.trim(),
-        colorCasa: formOps.color.trim(),
-        enlaceUbicacion: formOps.enlace.trim(),
-        fotoUbicacion: fotoUrl,
-        observacionesOperacion: formOps.observaciones.trim(),
-        entradaOperacionesEn: serverTimestamp(),
-      }
-
-      await actualizarLead(modalOps.leadId, payload)
-      setLeads(prev => prev.map(l => l.id === modalOps.leadId ? { ...l, ...payload } : l))
-
-      // Notificar al rol configurado
-      const rolNotif = configOps?.rolNotificacion
-      if (rolNotif) {
-        const destinatarios = usuariosOps.filter(u => u.rol === rolNotif)
-        const leadNombre = modalOps.lead?.nombre || ''
-        await Promise.all(destinatarios.map(u =>
-          crearNotificacion({
-            destinatarioId: u.uid,
-            tipo: 'general',
-            titulo: '🛠️ Nuevo lead en operaciones',
-            cuerpo: `"${leadNombre}" entró a operaciones. Ubicación: ${formOps.ubicacion}, ${formOps.direccion}`,
-            link: '/operaciones',
-          }).catch(() => {})
-        ))
-      }
-
-      setModalOps(null)
-    } catch (e) { console.error(e); alert('Error: ' + e.message) }
-    finally { setGuardandoOps(false) }
-  }
-
-  const cancelarOperaciones = () => {
-    setModalOps(null)
-    setFormOps({ ubicacion: '', direccion: '', casa: '', color: '', enlace: '', observaciones: '' })
-    setFotoOps(null); setFotoPreview(null)
   }
 
   const handleEliminarLead = async (lead) => {
@@ -274,69 +163,6 @@ export default function CRMPage() {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-
-      {/* Modal datos de operaciones */}
-      {modalOps && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(3px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={e => e.target === e.currentTarget && cancelarOperaciones()}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '95%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,.2)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f2f5', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 22 }}>🛠️</span>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>Datos para operaciones</div>
-                <div style={{ fontSize: 12, color: '#888' }}>{modalOps.lead?.nombre}</div>
-              </div>
-            </div>
-            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Ubicación *</label>
-                  <input value={formOps.ubicacion} onChange={e => setFormOps({ ...formOps, ubicacion: e.target.value })} placeholder="Provincia / zona" style={{ width: '100%', padding: '7px 10px', border: '1px solid #dde3ed', borderRadius: 7, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Casa / número</label>
-                  <input value={formOps.casa} onChange={e => setFormOps({ ...formOps, casa: e.target.value })} placeholder="# casa, apto, etc." style={{ width: '100%', padding: '7px 10px', border: '1px solid #dde3ed', borderRadius: 7, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                </div>
-              </div>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Dirección completa *</label>
-                <input value={formOps.direccion} onChange={e => setFormOps({ ...formOps, direccion: e.target.value })} placeholder="Dirección detallada" style={{ width: '100%', padding: '7px 10px', border: '1px solid #dde3ed', borderRadius: 7, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Color de la casa</label>
-                  <input value={formOps.color} onChange={e => setFormOps({ ...formOps, color: e.target.value })} placeholder="Ej: verde con portón negro" style={{ width: '100%', padding: '7px 10px', border: '1px solid #dde3ed', borderRadius: 7, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Enlace (Maps, Waze)</label>
-                  <input value={formOps.enlace} onChange={e => setFormOps({ ...formOps, enlace: e.target.value })} placeholder="https://..." style={{ width: '100%', padding: '7px 10px', border: '1px solid #dde3ed', borderRadius: 7, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                </div>
-              </div>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Foto del lugar</label>
-                <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) { setFotoOps(f); const r = new FileReader(); r.onload = ev => setFotoPreview(ev.target.result); r.readAsDataURL(f) } }} />
-                {fotoPreview ? (
-                  <div style={{ position: 'relative', display: 'inline-block' }}>
-                    <img src={fotoPreview} alt="preview" style={{ maxHeight: 100, borderRadius: 8, border: '1px solid #e0e0e0' }} />
-                    <button onClick={() => { setFotoOps(null); setFotoPreview(null) }} style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: '#A32D2D', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-                  </div>
-                ) : (
-                  <button onClick={() => fotoRef.current?.click()} style={{ padding: '8px 14px', border: '1px dashed #bbb', borderRadius: 7, background: '#fafafa', color: '#888', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>📷 Subir foto</button>
-                )}
-              </div>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Observaciones</label>
-                <textarea value={formOps.observaciones} onChange={e => setFormOps({ ...formOps, observaciones: e.target.value })} placeholder="Notas adicionales, instrucciones especiales..." style={{ width: '100%', padding: '7px 10px', border: '1px solid #dde3ed', borderRadius: 7, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', minHeight: 60, resize: 'vertical' }} />
-              </div>
-            </div>
-            <div style={{ padding: '14px 20px', borderTop: '1px solid #f0f2f5', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={cancelarOperaciones} style={{ padding: '8px 16px', border: '1px solid #dde3ed', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: '#f5f5f5', fontFamily: 'inherit' }}>Cancelar</button>
-              <button onClick={guardarOperaciones} disabled={guardandoOps} style={{ padding: '8px 20px', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: guardandoOps ? 'not-allowed' : 'pointer', background: guardandoOps ? '#e0e0e0' : '#854F0B', color: guardandoOps ? '#aaa' : '#fff', fontFamily: 'inherit' }}>
-                {guardandoOps ? 'Guardando...' : '🛠️ Enviar a operaciones'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* HEADER */}
       <div style={s.header}>
@@ -398,15 +224,12 @@ export default function CRMPage() {
       {/* KANBAN */}
       {vista === 'kanban' && (
         <div style={s.kanbanWrapper}>
-          {columnas.filter(col => {
-            const nombre = (col.nombre || '').toLowerCase()
-            return nombre !== 'ganado' && nombre !== 'perdido'
-          }).map((col) => (
+          {columnas.map(col => (
             <div key={col.id}
-              style={{ ...s.columna, ...(dragOver === col.id ? s.columnaOver : {}), ...(dragOverCol === col.id ? { borderTop: '3px solid #185FA5' } : {}), opacity: draggingCol === col.id ? 0.5 : 1 }}
-              onDragOver={e => { e.preventDefault(); if (draggingCol) setDragOverCol(col.id); else setDragOver(col.id) }}
-              onDragLeave={() => { setDragOver(null); setDragOverCol(null) }}
-              onDrop={e => { if (draggingCol) { e.preventDefault(); handleDropColumna(col.id) } else handleDrop(e, col.id) }}
+              style={{ ...s.columna, ...(dragOver === col.id ? s.columnaOver : {}) }}
+              onDragOver={e => { e.preventDefault(); setDragOver(col.id) }}
+              onDragLeave={() => setDragOver(null)}
+              onDrop={e => handleDrop(e, col.id)}
             >
               <div style={s.colHeader}>
                 {editandoColumna === col.id ? (
@@ -420,10 +243,7 @@ export default function CRMPage() {
                   </div>
                 )}
                 {esSuperiorOAdmin && (
-                  <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                    <span draggable onDragStart={e => { e.stopPropagation(); setDraggingCol(col.id); e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDraggingCol(null); setDragOverCol(null) }} style={{ cursor: 'grab', color: '#bbb', fontSize: 12, padding: '0 3px', userSelect: 'none' }} title="Arrastrá para reordenar">⠿</span>
-                    <button style={s.btnBorrarCol} onClick={() => borrarColumna(col.id)} title="Eliminar columna">✕</button>
-                  </div>
+                  <button style={s.btnBorrarCol} onClick={() => borrarColumna(col.id)} title="Eliminar columna">✕</button>
                 )}
               </div>
 
@@ -587,8 +407,8 @@ const estilos = {
   vistaTabs:      { display: 'flex', border: '1.5px solid #dde3ed', borderRadius: '8px', overflow: 'hidden' },
   vistaBtn:       { padding: '0.45rem 0.9rem', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#666', fontWeight: 500 },
   vistaBtnActivo: { backgroundColor: '#1a3a5c', color: '#fff' },
-  kanbanWrapper:  { display: 'flex', gap: '0.5rem', overflowX: 'auto', flex: 1, paddingBottom: '1rem', alignItems: 'flex-start' },
-  columna:        { minWidth: '220px', flex: 1, backgroundColor: '#f0f4f8', borderRadius: '10px', padding: '0.6rem', display: 'flex', flexDirection: 'column', transition: 'background 0.2s' },
+  kanbanWrapper:  { display: 'flex', gap: '1rem', overflowX: 'auto', flex: 1, paddingBottom: '1rem', alignItems: 'flex-start' },
+  columna:        { minWidth: '280px', maxWidth: '280px', backgroundColor: '#f0f4f8', borderRadius: '12px', padding: '0.75rem', display: 'flex', flexDirection: 'column', transition: 'background 0.2s' },
   columnaOver:    { backgroundColor: '#dbeafe' },
   colHeader:      { display: 'flex', alignItems: 'center', marginBottom: '0.35rem', gap: '0.5rem' },
   colNombre:      { fontWeight: 700, color: '#1a1a1a', fontSize: '0.9rem', flex: 1 },

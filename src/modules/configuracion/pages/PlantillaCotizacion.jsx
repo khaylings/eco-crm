@@ -37,6 +37,12 @@ const WIDGET_DEFAULTS = {
   totales:         { w:220, h:90,  bg:'#f0f4f8',    opacity:1,   label:'Totales',          color:'#185FA5', fontSize:13, fontWeight:'500', borderWidth:1, borderColor:'#d0e0f0', borderRadius:6,  text:'', marginTop:0, marginBottom:8, align:'right', alignV:'top' },
   observaciones:   { w:307, h:80,  bg:'transparent', opacity:1,   label:'Observaciones',    color:'#555555', fontSize:11, fontWeight:'400', borderWidth:0, borderColor:'#d0d8d0', borderRadius:4,  text:'Observaciones de la cotización...', marginTop:0, marginBottom:8, align:'left' },
   terminos:        { w:547, h:80,  bg:'transparent', opacity:1,   label:'Términos',         color:'#555555', fontSize:11, fontWeight:'400', borderWidth:0, borderColor:'#d0d8d0', borderRadius:4,  text:'· Validez: 15 días\n· Pago: 60% anticipo' },
+  info_cotizacion: { w:547, h:70,  bg:'transparent', opacity:1,   label:'Info cotización',  color:'#555555', fontSize:11, fontWeight:'400', borderWidth:0, borderColor:'#e0e8f0', borderRadius:6,  text:'' },
+  vendedor:        { w:200, h:30,  bg:'transparent', opacity:1,   label:'Vendedor',         color:'#555555', fontSize:11, fontWeight:'400', borderWidth:0, borderColor:'#d0d8d0', borderRadius:4,  text:'Vendedor: Nombre' },
+  paginacion:      { w:120, h:20,  bg:'transparent', opacity:1,   label:'Paginación',       color:'#888888', fontSize:9,  fontWeight:'400', borderWidth:0, borderColor:'#d0d8d0', borderRadius:0,  text:'Página {{pagina}} de {{totalPaginas}}' },
+  telefono_empresa:{ w:140, h:20,  bg:'transparent', opacity:1,   label:'Teléfono',         color:'#888888', fontSize:9,  fontWeight:'400', borderWidth:0, borderColor:'#d0d8d0', borderRadius:0,  text:'+506 XXXX-XXXX' },
+  email_empresa:   { w:160, h:20,  bg:'transparent', opacity:1,   label:'Email',            color:'#888888', fontSize:9,  fontWeight:'400', borderWidth:0, borderColor:'#d0d8d0', borderRadius:0,  text:'info@empresa.com' },
+  web_empresa:     { w:160, h:20,  bg:'transparent', opacity:1,   label:'Sitio web',        color:'#888888', fontSize:9,  fontWeight:'400', borderWidth:0, borderColor:'#d0d8d0', borderRadius:0,  text:'www.empresa.com' },
 }
 
 const CONTENT_TYPES = ['opciones_tabs','tabla','observaciones','totales','terminos']
@@ -54,14 +60,18 @@ const PANEL_SECTIONS = {
   content: {
     label: 'Contenido',
     groups: [
+      { label: 'Datos', items: [{type:'numero_cot',label:'N° cotización'},{type:'info_cotizacion',label:'Info cotización (cliente + fechas)'},{type:'fechas',label:'Fechas y vendedor'},{type:'datos_cliente',label:'Datos cliente'},{type:'vendedor',label:'Vendedor'}] },
       { label: 'Bloques', items: [{type:'opciones_tabs',label:'Selector opciones'},{type:'tabla',label:'Tabla productos'},{type:'observaciones',label:'Observaciones'},{type:'totales',label:'Totales'},{type:'terminos',label:'Términos'}] },
+      { label: 'Diseño', items: [{type:'separador',label:'Separador'},{type:'texto_libre',label:'Texto libre'}] },
     ]
   },
   footer: {
     label: 'Footer',
     groups: [
-      { label: 'Logos', items: [{type:'logo_principal',label:'Logo principal'},{type:'logo_secundario',label:'Logo secundario'}] },
-      { label: 'Diseño', items: [{type:'separador',label:'Separador'},{type:'texto_libre',label:'Texto libre'}] },
+      { label: 'Logos', items: [{type:'logo_principal',label:'Logo principal'},{type:'logo_secundario',label:'Logo secundario'},{type:'isotipo',label:'Isotipo'}] },
+      { label: 'Empresa', items: [{type:'nombre_empresa',label:'Nombre empresa'},{type:'datos_empresa',label:'Datos empresa'},{type:'telefono_empresa',label:'Teléfono'},{type:'email_empresa',label:'Email'},{type:'web_empresa',label:'Sitio web'}] },
+      { label: 'Paginación', items: [{type:'paginacion',label:'Página X de Y'}] },
+      { label: 'Diseño', items: [{type:'separador',label:'Separador'},{type:'texto_libre',label:'Texto libre'},{type:'fondo',label:'Fondo color'}] },
     ]
   },
 }
@@ -123,6 +133,25 @@ function WidgetContent({ w, empresa }) {
       ))}
     </div>
   )
+  if (w.type==='info_cotizacion') return (
+    <div style={{width:'100%',display:'flex',gap:12,padding:'4px 8px',fontSize:w.fontSize,color:w.color,lineHeight:1.6}}>
+      <div style={{flex:1}}>
+        <div>Nombre: Juan Pérez</div>
+        <div>Empresa: Distribuidora ABC S.A.</div>
+        <div>Sede: Sede Central</div>
+      </div>
+      <div style={{flex:1,textAlign:'right'}}>
+        <div>Fecha: 01/01/2026</div>
+        <div>Vence: 08/01/2026</div>
+        <div>Vendedor: Nombre</div>
+      </div>
+    </div>
+  )
+  if (w.type==='vendedor') return <div style={txt}>Vendedor: Nombre del vendedor</div>
+  if (w.type==='telefono_empresa') return <div style={txt}>{empresa?.telefono || '+506 XXXX-XXXX'}</div>
+  if (w.type==='email_empresa') return <div style={txt}>{empresa?.email || empresa?.correo || 'info@empresa.com'}</div>
+  if (w.type==='web_empresa') return <div style={txt}>{empresa?.sitioWeb || 'www.empresa.com'}</div>
+  if (w.type==='paginacion') return <div style={txt}>Página 1 de 1</div>
   return <div style={txt}>{w.text||''}</div>
 }
 
@@ -217,9 +246,10 @@ function PropsPanel({ widget, onChange, onDelete, onUploadImage, onSubirCapa, on
           </>)}
         </div>
       )}
-      {['texto_libre','nombre_empresa','datos_empresa','numero_cot','fechas','datos_cliente','observaciones','terminos'].includes(w.type) && (
+      {['texto_libre','nombre_empresa','datos_empresa','numero_cot','fechas','datos_cliente','observaciones','terminos','email_empresa','telefono_empresa','web_empresa','vendedor','paginacion','info_cotizacion'].includes(w.type) && (
         <div><span style={lbl}>Texto</span>
-          <textarea value={w.text||''} onChange={e=>onChange('text',e.target.value)} rows={4} style={{...inp,resize:'vertical',lineHeight:1.5}} />
+          <textarea value={w.text||''} onChange={e=>onChange('text',e.target.value)} rows={3} style={{...inp,resize:'vertical',lineHeight:1.5}} />
+          <div style={{fontSize:9,color:'#aaa',marginTop:2}}>Si está vacío, se toma automáticamente del sistema.</div>
         </div>
       )}
       {!isDesign && !isLogo && w.type!=='imagen' && (
@@ -810,6 +840,8 @@ export default function PlantillaCotizacion() {
 
                 {/* CONTENIDO */}
                 <div ref={seccion==='content'?hojaRef:null}
+                  onDragOver={seccion==='content'?e=>e.preventDefault():undefined}
+                  onDrop={seccion==='content'?onDrop:undefined}
                   style={{width:595,padding:'12px 24px',background:'#ffffff',flex:1,outline:seccion==='content'?'2px solid #185FA5':'none',outlineOffset:-2}}>
                   {seccion==='content' && contentWidgets.length===0 && <div style={{textAlign:'center',padding:20,color:'#cccccc',fontSize:12}}>← Usá el panel izquierdo para agregar bloques</div>}
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

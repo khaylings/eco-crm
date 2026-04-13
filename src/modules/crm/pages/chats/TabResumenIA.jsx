@@ -93,7 +93,7 @@ ${transcripcion}`
             {generando ? '⟳ Analizando...' : resumen ? '↺ Regenerar' : '✨ Generar resumen'}
           </button>
         </div>
-        {guardado && <div style={{ fontSize:10, color:'#bbb' }}>Último: {new Date(guardado).toLocaleString('es-CR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div>}
+        {guardado && <div style={{ fontSize:10, color:'#bbb' }}>Último: {new Date(guardado).toLocaleString('es-CR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>}
         <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>{mensajes.length} mensajes · Gemini AI</div>
       </div>
       <div style={{ flex:1, overflowY:'auto', padding:'14px' }}>

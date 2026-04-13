@@ -31,7 +31,7 @@ function formatFechaEmail(fecha) {
   if (diffMin < 1)  return 'Ahora'
   if (diffMin < 60) return `${diffMin} min`
   if (diffH < 24)   return d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
-  if (diffD < 7)    return d.toLocaleDateString('es-CR', { weekday: 'short', day: '2-digit', month: 'short' })
+  if (diffD < 7)    return d.toLocaleDateString('es-CR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
   return d.toLocaleDateString('es-CR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
@@ -46,7 +46,7 @@ function formatFechaCorta(fecha) {
   if (!fecha) return '—'
   const d = fecha instanceof Date ? fecha : fecha?.toDate ? fecha.toDate() : new Date(fecha?.seconds ? fecha.seconds * 1000 : fecha)
   if (isNaN(d.getTime())) return '—'
-  return d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }) + ' · ' + d.toLocaleDateString('es-CR', { day: '2-digit', month: 'short' })
+  return d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }) + ' · ' + d.toLocaleDateString('es-CR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function initials(str) {

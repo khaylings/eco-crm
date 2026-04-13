@@ -31,8 +31,11 @@ export const eliminarEmpresa = (id) =>
   deleteDoc(doc(db, 'empresas', id))
 
 export const obtenerEmpresas = async () => {
-  const snap = await getDocs(query(empresasRef(), orderBy('nombre')))
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const snap = await getDocs(empresasRef())
+  return snap.docs.map(d => {
+    const data = d.data()
+    return { id: d.id, ...data, nombre: data.nombre || data.nombreComercial || data.razonSocial || '' }
+  }).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
 }
 
 export const obtenerEmpresa = async (id) => {

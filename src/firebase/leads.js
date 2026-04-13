@@ -139,8 +139,11 @@ export const obtenerContactos = async () => {
 }
 
 export const obtenerEmpresas = async () => {
-  const snap = await getDocs(query(collection(db, 'empresas'), orderBy('nombre')))
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const snap = await getDocs(collection(db, 'empresas'))
+  return snap.docs.map(d => {
+    const data = d.data()
+    return { id: d.id, ...data, nombre: data.nombre || data.nombreComercial || data.razonSocial || '' }
+  }).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
 }
 
 // ── USUARIOS DEL SISTEMA ──────────────────────────────────────────

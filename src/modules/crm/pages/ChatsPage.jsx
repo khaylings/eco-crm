@@ -19,7 +19,38 @@ import TabResumenIA from './chats/TabResumenIA'
 import ModalNuevoGrupo from './chats/ModalNuevoGrupo'
 import { Avatar, EtapaBadge, SectionLabel, Divider, sel } from './chats/ChatComponents'
 import { formatFecha, colorFromString } from './chats/helpers'
-import { WASENDER_URL, WASENDER_TOKEN, NUDGE_IMG_URL, ETIQUETAS, ETAPAS_PIPELINE, ETAPAS_LEAD_ACTIVO, ORIGENES, ROLES_SUPERVISOR, ROLES_RESUMEN_IA } from './chats/constants'
+import { WASENDER_URL, WASENDER_TOKEN, NUDGE_IMG_URL, ETIQUETAS, ORIGENES, ROLES_SUPERVISOR, ROLES_RESUMEN_IA } from './chats/constants'
+
+function IndicadorLectura({ chatId, miembros, gruposInternos, usuarios, usuarioActualUid, mensajes }) {
+  const chatData = gruposInternos.find(g => g.id === chatId)
+  const otros = (miembros || []).filter(uid => uid !== usuarioActualUid)
+  if (otros.length === 0) return null
+
+  // Buscar si mis mensajes fueron leídos: el otro respondió después de mi último mensaje, o tiene ultimaLectura
+  const misMensajes = mensajes.filter(m => m.autorId === usuarioActualUid)
+  if (misMensajes.length === 0) return null
+
+  const ultimoMio = misMensajes[misMensajes.length - 1]
+  const toMs = (ts) => { if (!ts) return 0; if (ts.toMillis) return ts.toMillis(); if (ts.toDate) return ts.toDate().getTime(); if (ts.seconds) return ts.seconds * 1000; return 0 }
+  const ultimoMioMs = toMs(ultimoMio?.timestamp)
+
+  // Verificar si algún otro respondió después de mi último mensaje
+  const otroRespondio = mensajes.some(m => m.autorId !== usuarioActualUid && toMs(m.timestamp) > ultimoMioMs)
+
+  // O si tiene ultimaLectura posterior a mi último mensaje
+  const otroLeyoPorLectura = chatData && otros.some(uid => {
+    const lecMs = toMs(chatData.ultimaLectura?.[uid])
+    return lecMs > 0 && lecMs >= ultimoMioMs
+  })
+
+  const leido = otroRespondio || otroLeyoPorLectura
+
+  return (
+    <div style={{ padding: '4px 16px', background: leido ? '#E1F5EE' : '#FFF8E1', borderBottom: '1px solid #e0e7ef', fontSize: 11, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, color: leido ? '#0F6E56' : '#854F0B', fontWeight: 500 }}>
+      {leido ? '✓✓ Chat leído' : '◷ Chat no leído'}
+    </div>
+  )
+}
 
 export default function ChatsPage() {
   const { usuario, currentUser } = useAuth()
@@ -29,11 +60,20 @@ export default function ChatsPage() {
   const [conversaciones,  setConversaciones]  = useState([])
   const [gruposInternos,  setGruposInternos]  = useState([])
   const [chatActivo,      setChatActivo]       = useState(null)
+  const [contactoCRM,    setContactoCRM]      = useState(null)
+  const [loadingContacto, setLoadingContacto] = useState(false)
+  const [leadsCRM,       setLeadsCRM]         = useState([])
+  const [modalLead,      setModalLead]        = useState(null) // null | 'tipo' | 'factura' | 'nombre'
+  const [nuevoLead,      setNuevoLead]        = useState({})
+  const [tareas,          setTareas]           = useState([])
+  const [modalTarea,      setModalTarea]       = useState(false)
+  const [filtroTareas,    setFiltroTareas]     = useState('pendientes')
   const [tipoActivo,      setTipoActivo]       = useState('wa')
   const [mensajes,        setMensajes]         = useState([])
   const [mensaje,         setMensaje]          = useState('')
   const [enviando,        setEnviando]         = useState(false)
   const [usuarios,        setUsuarios]         = useState([])
+  const [columnsPipeline, setColumnsPipeline]  = useState([])
   const [tabActiva,       setTabActiva]        = useState('mensaje')
   const [filtroLista,     setFiltroLista]      = useState('todos')
   const [busqueda,        setBusqueda]         = useState('')
@@ -83,8 +123,21 @@ export default function ChatsPage() {
   const tabsActuales = tipoActivo === 'wa' ? tabsWA : tabsInterno
 
   useEffect(() => {
-    getDocs(collection(db, 'usuarios')).then(snap => setUsuarios(snap.docs.map(d => ({ uid: d.id, ...d.data() }))))
+    return onSnapshot(collection(db, 'usuarios'), snap => setUsuarios(snap.docs.map(d => ({ uid: d.id, ...d.data() }))))
   }, [])
+
+  useEffect(() => {
+    const q = query(collection(db, 'pipeline_columnas'), orderBy('orden'))
+    return onSnapshot(q, snap => setColumnsPipeline(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+  }, [])
+
+  // Etapas dinámicas derivadas de pipeline_columnas
+  const ETAPAS_PIPELINE = [
+    { valor: '', label: 'Todas las etapas' },
+    ...columnsPipeline.map(c => ({ valor: c.id, label: c.nombre })),
+  ]
+  const ETAPAS_LEAD_ACTIVO = columnsPipeline.filter(c => c.nombre !== 'Ganado' && c.nombre !== 'Perdido').map(c => ({ valor: c.id, label: c.nombre }))
+  const ETAPA_CONFIG_DYN = Object.fromEntries(columnsPipeline.map(c => [c.id, { label: c.nombre, color: c.color, bg: c.color + '18' }]))
 
   useEffect(() => {
     const q = query(collection(db, 'conversaciones'), orderBy('timestamp', 'desc'))
@@ -110,15 +163,29 @@ export default function ChatsPage() {
       updateDoc(doc(db, 'conversaciones', chatActivo.id), { noLeidos: 0 }).catch(() => {})
     if (tipoActivo === 'interno') {
       const nl = chatActivo.noLeidos || {}
-      if (nl[usuarioActual?.uid] > 0)
-        updateDoc(doc(db, 'chats_internos', chatActivo.id), { [`noLeidos.${usuarioActual.uid}`]: 0 }).catch(() => {})
+      const updates = { [`ultimaLectura.${usuarioActual.uid}`]: serverTimestamp() }
+      if (nl[usuarioActual?.uid] > 0) updates[`noLeidos.${usuarioActual.uid}`] = 0
+      updateDoc(doc(db, 'chats_internos', chatActivo.id), updates).catch(() => {})
     }
     return () => { if (unsubMsgs.current) unsubMsgs.current() }
   }, [chatActivo?.id, tipoActivo])
 
   useEffect(() => {
     if (mensajesRef.current) mensajesRef.current.scrollTop = mensajesRef.current.scrollHeight
+    // Actualizar ultimaLectura cuando llegan mensajes nuevos en chat interno abierto
+    if (chatActivo?.id && tipoActivo === 'interno' && mensajes.length > 0) {
+      updateDoc(doc(db, 'chats_internos', chatActivo.id), { [`ultimaLectura.${usuarioActual?.uid}`]: serverTimestamp() }).catch(() => {})
+    }
   }, [mensajes])
+
+  // Sincronizar chatActivo con datos actualizados de gruposInternos (ultimaLectura, noLeidos, etc.)
+  useEffect(() => {
+    if (!chatActivo?.id || tipoActivo !== 'interno') return
+    const actualizado = gruposInternos.find(g => g.id === chatActivo.id)
+    if (actualizado) {
+      setChatActivo(prev => ({ ...prev, ultimaLectura: actualizado.ultimaLectura, noLeidos: actualizado.noLeidos }))
+    }
+  }, [gruposInternos])
 
   useEffect(() => {
     if (!usuarioActual?.uid || gruposInternos.length === 0) return
@@ -165,10 +232,10 @@ export default function ChatsPage() {
       if (filtroLista === 'interno') return false
       if (busqueda && !c.nombre?.toLowerCase().includes(busqueda.toLowerCase()) && !c.telefono?.includes(busqueda)) return false
       if (filtroAgente !== 'todos' && c.agente !== filtroAgente) return false
-      if (filtroEtapa && !(c.leads || []).some(l => l.etapa === filtroEtapa)) return false
+      if (filtroEtapa && !(c.leads || []).some(l => (l.columnaId || l.etapa) === filtroEtapa)) return false
       if (filtroEtiqueta && c.etiqueta !== filtroEtiqueta) return false
       if (esSupervisor && verSoloMisChats && c.agente !== usuarioActual?.uid) return false
-      if (!esSupervisor && c.agente && c.agente !== usuarioActual?.uid) return false
+      if (!esSupervisor && c.agente && c.agente !== usuarioActual?.uid && !(c.colaboradores||[]).includes(usuarioActual?.uid)) return false
       if (filtroNoLeidos === 'noLeidos' && (c.noLeidos || 0) === 0) return false
       if (filtroNoLeidos === 'leidos' && (c.noLeidos || 0) > 0) return false
       return true
@@ -176,9 +243,25 @@ export default function ChatsPage() {
 
     const internos = gruposInternos.filter(g => {
       if (filtroLista === 'wa') return false
-      if (busqueda && !g.nombre?.toLowerCase().includes(busqueda.toLowerCase())) return false
+      if (busqueda && !g.nombre?.toLowerCase().includes(busqueda.toLowerCase())) {
+        // También buscar por nombre del otro miembro en chats individuales
+        if ((g.miembros||[]).length === 2) {
+          const otroUid = g.miembros.find(uid => uid !== usuarioActual?.uid)
+          const otroUser = usuarios.find(u => u.uid === otroUid)
+          if (otroUser && (otroUser.nombre||otroUser.email||'').toLowerCase().includes(busqueda.toLowerCase())) return true
+        }
+        return false
+      }
       return true
-    }).map(g => ({ ...g, _tipo: 'interno' }))
+    }).map(g => {
+      // Chat individual: mostrar nombre del otro miembro
+      if ((g.miembros||[]).length === 2) {
+        const otroUid = g.miembros.find(uid => uid !== usuarioActual?.uid)
+        const otroUser = usuarios.find(u => u.uid === otroUid)
+        if (otroUser) return { ...g, nombre: otroUser.nombre || otroUser.email || g.nombre, _tipo: 'interno' }
+      }
+      return { ...g, _tipo: 'interno' }
+    })
 
     const getTs = item => {
       const ts = item._tipo === 'interno' ? item.ultimoMensajeEn : item.timestamp
@@ -230,7 +313,7 @@ export default function ChatsPage() {
       setRespondiendo(null)
       const noLeidos = {}
       ;(chatActivo.miembros||[]).forEach(uid => { if(uid!==usuarioActual?.uid) noLeidos[`noLeidos.${uid}`]=(chatActivo.noLeidos?.[uid]||0)+1 })
-      await updateDoc(doc(db,'chats_internos',chatActivo.id), { ultimoMensaje:texto, ultimoMensajeEn:serverTimestamp(), ...noLeidos })
+      await updateDoc(doc(db,'chats_internos',chatActivo.id), { ultimoMensaje:texto, ultimoMensajeEn:serverTimestamp(), [`ultimaLectura.${usuarioActual.uid}`]: serverTimestamp(), ...noLeidos })
     } catch(e) { console.error(e) } finally { setEnviando(false) }
   }
 
@@ -311,6 +394,151 @@ export default function ChatsPage() {
     await updateDoc(doc(db, 'conversaciones', chatActivo.id), { [campo]: valor })
     setChatActivo(prev => ({ ...prev, [campo]: valor }))
     setConversaciones(prev => prev.map(c => c.id === chatActivo.id ? { ...c, [campo]: valor } : c))
+  }
+
+  // Cargar contacto CRM y leads cuando cambia el chat — si no existe, crearlo automáticamente
+  useEffect(() => {
+    if (!chatActivo?.telefono) { setContactoCRM(null); setLeadsCRM([]); return }
+    let cancelado = false
+    setLoadingContacto(true)
+
+    async function cargarOCrear() {
+      try {
+        // 1. Buscar por whatsapp
+        let ct = null
+        const snap = await getDocs(query(collection(db,'contactos'),where('whatsapp','==',chatActivo.telefono)))
+        if (!snap.empty) { ct = { id: snap.docs[0].id, ...snap.docs[0].data() } }
+
+        // 2. Si no encontró, buscar por contactoId
+        if (!ct && chatActivo.contactoId) {
+          const d = await getDoc(doc(db,'contactos',chatActivo.contactoId))
+          if (d.exists()) ct = { id: d.id, ...d.data() }
+        }
+
+        // 3. Si sigue sin contacto, crearlo automáticamente
+        if (!ct) {
+          const nuevo = {
+            nombre: chatActivo.nombre || '', telefono: chatActivo.telefono || '',
+            whatsapp: chatActivo.telefono || '', correo: '', tipo: 'persona',
+            facturacion: { tipoFact: 'fisica', campos: {} },
+            origen: 'WhatsApp', creadoEn: serverTimestamp(),
+          }
+          const ref = await addDoc(collection(db,'contactos'), nuevo)
+          ct = { id: ref.id, ...nuevo }
+          // Vincular a la conversación
+          await updateDoc(doc(db,'conversaciones',chatActivo.id), { contactoId: ref.id }).catch(() => {})
+        }
+
+        if (!cancelado) {
+          setContactoCRM(ct)
+          if (ct.id) cargarLeadsContacto(ct.id)
+        }
+      } catch {
+        if (!cancelado) { setContactoCRM(null); setLeadsCRM([]) }
+      } finally {
+        if (!cancelado) setLoadingContacto(false)
+      }
+    }
+
+    cargarOCrear()
+    return () => { cancelado = true }
+  }, [chatActivo?.id, chatActivo?.telefono, chatActivo?.contactoId])
+
+  async function cargarLeadsContacto(contactoId) {
+    const snap = await getDocs(query(collection(db,'leads'),where('contactoId','==',contactoId)))
+    setLeadsCRM(snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(l => l.estado !== 'perdido'))
+  }
+
+  async function guardarContactoCRM(campo, valor) {
+    if (!contactoCRM?.id) return
+    await updateDoc(doc(db,'contactos',contactoCRM.id), { [campo]: valor })
+    setContactoCRM(prev => ({ ...prev, [campo]: valor }))
+  }
+
+  async function guardarFacturacionCRM(tipoFact, campoId, valor) {
+    if (!contactoCRM?.id) return
+    const fact = contactoCRM.facturacion || { tipoFact: 'fisica', campos: {} }
+    const updated = { ...fact, tipoFact, campos: { ...fact.campos, [campoId]: valor } }
+    await updateDoc(doc(db,'contactos',contactoCRM.id), { facturacion: updated })
+    setContactoCRM(prev => ({ ...prev, facturacion: updated }))
+  }
+
+  async function cambiarTipoFactCRM(tipoFact) {
+    if (!contactoCRM?.id) return
+    const fact = contactoCRM.facturacion || { campos: {} }
+    await updateDoc(doc(db,'contactos',contactoCRM.id), { facturacion: { ...fact, tipoFact } })
+    setContactoCRM(prev => ({ ...prev, facturacion: { ...fact, tipoFact } }))
+  }
+
+  // Cargar tareas del chat interno
+  useEffect(() => {
+    if (!chatActivo?.id || tipoActivo !== 'interno') { setTareas([]); return }
+    const q2 = query(collection(db, `chats_internos/${chatActivo.id}/tareas`), orderBy('creadoEn', 'desc'))
+    const unsub = onSnapshot(q2, snap => setTareas(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    return unsub
+  }, [chatActivo?.id, tipoActivo])
+
+  async function crearTareaChat(data) {
+    if (!chatActivo?.id) return
+    const nombre = usuarioActual?.nombre || usuarioActual?.email || 'Alguien'
+    await addDoc(collection(db, `chats_internos/${chatActivo.id}/tareas`), {
+      ...data, estado: 'pendiente', creadoPor: usuarioActual?.uid, creadoEn: serverTimestamp(),
+    })
+    // Notificar en el chat
+    const asignados = (data.asignados || []).map(uid => usuarios.find(u => u.uid === uid)?.nombre || uid).join(', ')
+    await addDoc(collection(db, `chats_internos/${chatActivo.id}/mensajes`), {
+      body: `📋 ${nombre} creó tarea: "${data.titulo}" → ${asignados}`, tipo: 'sistema',
+      autorId: usuarioActual?.uid, autorNombre: nombre, timestamp: serverTimestamp(),
+    })
+  }
+
+  async function cambiarEstadoTarea(tareaId, nuevoEstado) {
+    if (!chatActivo?.id) return
+    await updateDoc(doc(db, `chats_internos/${chatActivo.id}/tareas`, tareaId), { estado: nuevoEstado, actualizadoEn: serverTimestamp() })
+    if (nuevoEstado === 'completada') {
+      const nombre = usuarioActual?.nombre || usuarioActual?.email || 'Alguien'
+      const tarea = tareas.find(t => t.id === tareaId)
+      await addDoc(collection(db, `chats_internos/${chatActivo.id}/mensajes`), {
+        body: `✅ ${nombre} completó la tarea: "${tarea?.titulo || ''}"`, tipo: 'sistema',
+        autorId: usuarioActual?.uid, autorNombre: nombre, timestamp: serverTimestamp(),
+      })
+    }
+  }
+
+  function iniciarCrearLead() {
+    if (!contactoCRM) { alert('Primero registra el contacto en CRM'); return }
+    if (contactoCRM.tipo === 'empresa' || contactoCRM.empresaNombre) {
+      setNuevoLead({}); setModalLead('tipo')
+    } else {
+      setNuevoLead({ tipoLead:'persona', tipoFactura:'fisica' }); setModalLead('nombre')
+    }
+  }
+
+  async function finalizarCrearLead(nombre) {
+    if (!nombre.trim()) return
+    // Obtener primera columna del pipeline
+    let columnaId = ''
+    try {
+      const colSnap = await getDocs(query(collection(db,'pipeline_columnas'),orderBy('orden')))
+      if (!colSnap.empty) columnaId = colSnap.docs[0].id
+    } catch {}
+    const data = {
+      nombre: nombre.trim(),
+      contactoId: contactoCRM.id,
+      cliente: contactoCRM.nombre || '',
+      tipoLead: nuevoLead.tipoLead || 'persona',
+      tipoFactura: nuevoLead.tipoFactura || 'fisica',
+      empresaId: nuevoLead.tipoLead === 'empresa' ? (contactoCRM.empresaId || '') : '',
+      empresaNombre: nuevoLead.tipoLead === 'empresa' ? (contactoCRM.empresaNombre || '') : '',
+      whatsapp: contactoCRM.whatsapp || chatActivo.telefono || '',
+      columnaId,
+      prioridad: 'media',
+      estado: 'activo',
+      origen: 'WhatsApp',
+    }
+    await addDoc(collection(db,'leads'), { ...data, creadoEn: serverTimestamp() })
+    setModalLead(null); setNuevoLead({})
+    cargarLeadsContacto(contactoCRM.id)
   }
 
   function actualizarLead(idx, campo, valor) { const leads=[...(chatActivo.leads||[])]; leads[idx]={...leads[idx],[campo]:valor}; actualizarConversacion('leads',leads) }
@@ -409,16 +637,23 @@ export default function ChatsPage() {
           {listaFiltrada.length===0&&<div style={{ padding:'2rem', textAlign:'center', color:'#bbb', fontSize:'13px' }}><div style={{ fontSize:28, marginBottom:8 }}>💬</div>Sin conversaciones</div>}
           {listaFiltrada.map(item => {
             const esInterno = item._tipo==='interno'
-            const activo    = chatActivo?.id===item.id&&tipoActivo===item._tipo
+            const esChatActivo = chatActivo?.id===item.id&&tipoActivo===item._tipo
             const etiq      = ETIQUETAS.find(e=>e.valor===item.etiqueta)
             const leadActivo= (item.leads||[]).filter(l=>l.etapa!=='ganado'&&l.etapa!=='perdido').slice(-1)[0]
             const noLeidos  = esInterno?(item.noLeidos?.[usuarioActual?.uid]||0):(item.noLeidos||0)
             const agenteNombre = !esInterno&&item.agente?usuarios.find(u=>u.uid===item.agente)?.nombre:null
+            // Estado activo del otro usuario en chat individual
+            const otroUsuarioActivo = esInterno && (item.miembros||[]).length === 2
+              ? (() => { const otroUid = (item.miembros||[]).find(uid => uid !== usuarioActual?.uid); const u = usuarios.find(u => u.uid === otroUid); return u?.activo || false })()
+              : null
             return (
-              <div key={`${item._tipo}-${item.id}`} onClick={()=>seleccionarChat(item)} onMouseEnter={e=>{if(!activo)e.currentTarget.style.background='#f9fafb'}} onMouseLeave={e=>{if(!activo)e.currentTarget.style.background='#fff'}}
-                style={{ padding:'10px 14px', cursor:'pointer', background:activo?'#EEF3FA':'#fff', borderLeft:activo?`3px solid ${esInterno?'#0F6E56':'var(--eco-primary,#1a3a5c)'}`:'3px solid transparent', borderBottom:'1px solid #f5f6f8' }}>
+              <div key={`${item._tipo}-${item.id}`} onClick={()=>seleccionarChat(item)} onMouseEnter={e=>{if(!esChatActivo)e.currentTarget.style.background='#f9fafb'}} onMouseLeave={e=>{if(!esChatActivo)e.currentTarget.style.background='#fff'}}
+                style={{ padding:'10px 14px', cursor:'pointer', background:esChatActivo?'#EEF3FA':'#fff', borderLeft:esChatActivo?`3px solid ${esInterno?'#0F6E56':'var(--eco-primary,#1a3a5c)'}`:'3px solid transparent', borderBottom:'1px solid #f5f6f8' }}>
                 <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
-                  <Avatar nombre={item.nombre} size={36} interno={esInterno} />
+                  <div style={{ position:'relative', flexShrink:0 }}>
+                    <Avatar nombre={item.nombre} size={36} interno={esInterno} />
+                    {otroUsuarioActivo !== null && <span style={{ position:'absolute', bottom:0, right:0, width:10, height:10, borderRadius:'50%', background:otroUsuarioActivo?'#22c55e':'#ef4444', border:'2px solid #fff' }} />}
+                  </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:2 }}>
                       <span style={{ fontWeight:noLeidos>0?700:600, fontSize:13, color:'#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:145 }}>{item.nombre}</span>
@@ -429,9 +664,9 @@ export default function ChatsPage() {
                     </div>
                     <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
                       {!esInterno&&etiq?.valor&&<span style={{ fontSize:10, padding:'1px 6px', borderRadius:20, background:etiq.color+'18', color:etiq.color, fontWeight:600 }}>{etiq.label}</span>}
-                      {!esInterno&&leadActivo&&<EtapaBadge etapa={leadActivo.etapa} small />}
+                      {!esInterno&&leadActivo&&<EtapaBadge etapa={leadActivo.etapa||leadActivo.columnaId} small columnas={columnsPipeline} />}
                       {!esInterno&&agenteNombre&&<span style={{ fontSize:10, color:'#bbb' }}>👤 {agenteNombre}</span>}
-                      {esInterno&&<span style={{ fontSize:10, color:'#aaa' }}>{(item.miembros||[]).length} miembros</span>}
+                      {esInterno&&(item.miembros||[]).length>2&&<span style={{ fontSize:10, color:'#aaa' }}>Chat grupal</span>}
                       {noLeidos>0&&<span style={{ marginLeft:'auto', background:esInterno?'#0F6E56':'var(--eco-primary,#1a3a5c)', color:'#fff', fontSize:10, padding:'1px 7px', borderRadius:10, fontWeight:700 }}>{noLeidos}</span>}
                     </div>
                   </div>
@@ -446,16 +681,31 @@ export default function ChatsPage() {
       {chatActivo ? (
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
           <div style={{ padding:'12px 16px', background:'#fff', borderBottom:'1px solid #e0e7ef', display:'flex', alignItems:'center', gap:'10px', flexShrink:0, minHeight:60 }}>
-            <Avatar nombre={chatActivo.nombre} size={38} interno={tipoActivo==='interno'} />
+            {(() => {
+              const esIndividual = tipoActivo==='interno' && (chatActivo.miembros||[]).length === 2
+              const otroActivo = esIndividual ? (() => { const otroUid = (chatActivo.miembros||[]).find(uid => uid !== usuarioActual?.uid); return usuarios.find(u => u.uid === otroUid)?.activo || false })() : null
+              return (
+                <div style={{ position:'relative', flexShrink:0 }}>
+                  <Avatar nombre={chatActivo.nombre} size={38} interno={tipoActivo==='interno'} />
+                  {otroActivo !== null && <span style={{ position:'absolute', bottom:0, right:0, width:11, height:11, borderRadius:'50%', background:otroActivo?'#22c55e':'#ef4444', border:'2px solid #fff' }} />}
+                </div>
+              )
+            })()}
             <div style={{ flex:1 }}>
               <div style={{ fontWeight:700, fontSize:'14px', color:'#1a1a1a' }}>{chatActivo.nombre}</div>
-              <div style={{ fontSize:'12px', color:'#888' }}>{tipoActivo==='wa'?chatActivo.telefono:nombresMiembros(chatActivo.miembros)}</div>
+              <div style={{ fontSize:'12px', color:'#888' }}>
+                {tipoActivo==='wa'?chatActivo.telefono:tipoActivo==='interno'&&(chatActivo.miembros||[]).length===2
+                  ?(() => { const otroUid=(chatActivo.miembros||[]).find(uid=>uid!==usuarioActual?.uid); const u=usuarios.find(u=>u.uid===otroUid); return u?.activo?'En línea':'Desconectado' })()
+                  :nombresMiembros(chatActivo.miembros)}
+              </div>
             </div>
             {tipoActivo==='interno'
               ?<span style={{ fontSize:'11px', padding:'3px 10px', borderRadius:'20px', background:'#E1F5EE', color:'#0F6E56', fontWeight:600 }}>💬 Chat interno</span>
               :<span style={{ fontSize:'11px', padding:'3px 10px', borderRadius:'20px', background:'#EAF3DE', color:'#3B6D11', fontWeight:600 }}>📱 WhatsApp</span>
             }
           </div>
+
+          {tipoActivo==='interno'&&<IndicadorLectura chatId={chatActivo.id} miembros={chatActivo.miembros} gruposInternos={gruposInternos} usuarios={usuarios} usuarioActualUid={usuarioActual?.uid} mensajes={mensajes} />}
 
           {tabActiva!=='resumen'&&(
             <div ref={mensajesRef}
@@ -498,7 +748,7 @@ export default function ChatsPage() {
                         <div style={{ fontSize:'10px', marginTop:'4px', textAlign:'right', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:3 }}>
                           <span style={{ opacity:0.6 }}>{formatFecha(msg.timestamp)}</span>
                           {tipoActivo==='wa'&&!esMio&&msg.autorNombre&&<span style={{ opacity:0.6, marginLeft:4 }}>· {msg.autorNombre}</span>}
-                          {esMio&&<span style={{ fontSize:14, lineHeight:1, fontWeight:600 }}>{msg.leido===true?<span style={{ color:'#4FC3F7' }}>✓✓</span>:msg.timestamp?<span style={{ color:'rgba(255,255,255,0.75)' }}>✓✓</span>:<span style={{ color:'rgba(255,255,255,0.45)' }}>✓</span>}</span>}
+                          {esMio&&tipoActivo==='wa'&&<span style={{ fontSize:14, lineHeight:1, fontWeight:600 }}>{msg.leido===true?<span style={{ color:'#4FC3F7' }}>✓✓</span>:msg.timestamp?<span style={{ color:'rgba(255,255,255,0.75)' }}>✓✓</span>:<span style={{ color:'rgba(255,255,255,0.45)' }}>✓</span>}</span>}
                         </div>
                       </div>
                     </div>
@@ -626,65 +876,286 @@ export default function ChatsPage() {
         <div style={{ width:'270px', borderLeft:'1px solid #e0e7ef', background:'#fff', display:'flex', flexDirection:'column', flexShrink:0, overflowY:'auto' }}>
           {tipoActivo==='wa'&&(
             <>
-              <div style={{ padding:'16px 14px 12px', borderBottom:'1px solid #e8edf5' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'10px' }}>
-                  <Avatar nombre={chatActivo.nombre} size={44} />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:700, fontSize:'14px', color:'#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{chatActivo.nombre}</div>
-                    <div style={{ fontSize:'12px', color:'#888' }}>{chatActivo.telefono}</div>
+              <div style={{ padding:'10px 14px', flex:1, overflowY:'auto' }}>
+                {/* Agente */}
+                <div style={{ display:'flex', alignItems:'center', gap:'4px', marginBottom:'8px' }}>
+                  <span style={{ fontSize:9, color:'#8a99b3', fontWeight:600 }}>Agente:</span>
+                  <select value={chatActivo.agente||''} onChange={e=>actualizarConversacion('agente',e.target.value)} style={{ ...sel, fontSize:'11px', padding:'2px 6px', flex:1 }}><option value="">Sin asignar</option>{usuarios.map(u=><option key={u.uid} value={u.uid}>{u.nombre||u.email}</option>)}</select>
+                </div>
+                {/* ── CONTACTO CRM ── */}
+                {loadingContacto ? (
+                  <div style={{ fontSize:'11px', color:'#aaa', textAlign:'center', padding:'8px 0' }}>Cargando contacto...</div>
+                ) : contactoCRM && (<>
+                  <div style={{ fontSize:'10px', color:'#2e7d32', fontWeight:600, marginBottom:'6px' }}>✓ Contacto CRM vinculado</div>
+                  {/* Tipo */}
+                  <div style={{ display:'flex', gap:'4px', marginBottom:'6px' }}>
+                    {[['persona','👤 Persona'],['empresa','🏢 Empresa']].map(([val,lbl])=>(
+                      <button key={val} onClick={()=>guardarContactoCRM('tipo',val)} style={{ flex:1, padding:'5px', borderRadius:'7px', border:`1.5px solid ${contactoCRM.tipo===val?(val==='empresa'?'#c5d8f8':'#a5d6a7'):'#dde3ed'}`, background:contactoCRM.tipo===val?(val==='empresa'?'#e8f0fe':'#e8f5e9'):'#fff', cursor:'pointer', fontFamily:'inherit', fontSize:'11px', fontWeight:600, color:contactoCRM.tipo===val?(val==='empresa'?'#1a3a5c':'#2e7d32'):'#888' }}>{lbl}</button>
+                    ))}
                   </div>
-                </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:'12px' }}><span style={{ color:'#8a99b3' }}>Origen</span><span style={{ color:'#1a1a1a', fontWeight:500 }}>{chatActivo.origen||'—'}</span></div>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:'12px' }}><span style={{ color:'#8a99b3' }}>Desde</span><span style={{ color:'#1a1a1a', fontWeight:500 }}>{chatActivo.fechaCreacion?new Date(chatActivo.fechaCreacion).toLocaleDateString('es-CR'):formatFecha(chatActivo.timestamp)}</span></div>
-                </div>
-              </div>
-              <div style={{ padding:'12px 14px', flex:1 }}>
-                <div style={{ marginBottom:'10px' }}><SectionLabel>Etiqueta / Tipo</SectionLabel><select value={chatActivo.etiqueta||''} onChange={e=>actualizarConversacion('etiqueta',e.target.value)} style={{ ...sel, color:etiquetaActiva.color, fontWeight:600 }}>{ETIQUETAS.map(e=><option key={e.valor} value={e.valor}>{e.label}</option>)}</select></div>
-                <div style={{ marginBottom:'10px' }}><SectionLabel>Agente asignado</SectionLabel><select value={chatActivo.agente||''} onChange={e=>actualizarConversacion('agente',e.target.value)} style={sel}><option value="">Sin asignar</option>{usuarios.map(u=><option key={u.uid} value={u.uid}>{u.nombre||u.email}</option>)}</select></div>
-                <div style={{ marginBottom:'10px' }}><SectionLabel>Origen del contacto</SectionLabel><select value={chatActivo.origen||''} onChange={e=>actualizarConversacion('origen',e.target.value)} style={sel}><option value="">Seleccionar origen</option>{ORIGENES.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
-                <Divider />
-                <SectionLabel>Leads vinculados ({(chatActivo.leads||[]).length})</SectionLabel>
-                {(chatActivo.leads||[]).length===0&&<div style={{ fontSize:'12px', color:'#bbb', textAlign:'center', padding:'10px 0 6px' }}>Sin leads aún</div>}
-                {(chatActivo.leads||[]).map((lead,idx)=>{
-                  const esGanado=lead.etapa==='ganado'; const esPerdido=lead.etapa==='perdido'; const esCerrado=esGanado||esPerdido
-                  return (
-                    <div key={lead.id||idx} style={{ border:`1px solid ${esGanado?'#b7dba0':esPerdido?'#f5b8b8':'#dde3ed'}`, borderRadius:'10px', padding:'10px', marginBottom:'8px', background:esGanado?'#EAF3DE':esPerdido?'#FCEBEB':'#fafbfd' }}>
-                      <div style={{ fontSize:'13px', fontWeight:600, color:'#1a1a1a', marginBottom:'6px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{lead.nombre||'Lead sin nombre'}</div>
-                      <div style={{ marginBottom:'8px' }}><EtapaBadge etapa={lead.etapa} /></div>
-                      {!esCerrado&&<div style={{ marginBottom:'8px' }}><SectionLabel>Mover a etapa</SectionLabel><select value={lead.etapa||'nuevo'} onChange={e=>actualizarLead(idx,'etapa',e.target.value)} style={{ ...sel, fontSize:'12px', padding:'5px 8px' }}>{ETAPAS_LEAD_ACTIVO.map(e=><option key={e.valor} value={e.valor}>{e.label}</option>)}</select></div>}
-                      {esCerrado&&lead.fechaCierre&&<div style={{ fontSize:'11px', color:esGanado?'#3B6D11':'#A32D2D', marginBottom:'7px', fontWeight:500 }}>Cerrado el {new Date(lead.fechaCierre).toLocaleDateString('es-CR',{day:'2-digit',month:'short',year:'numeric'})}</div>}
-                      <div style={{ display:'flex', gap:'5px', marginBottom:esCerrado?'5px':'0' }}>
-                        <button onClick={()=>marcarLead(idx,'ganado')} style={{ flex:1, padding:'6px 4px', borderRadius:'7px', border:esGanado?'none':'1px solid #b7dba0', fontSize:'11px', fontWeight:600, cursor:'pointer', background:esGanado?'#3B6D11':'transparent', color:esGanado?'#fff':'#3B6D11' }}>{esGanado?'✓ Ganado':'🏆 Ganado'}</button>
-                        <button onClick={()=>marcarLead(idx,'perdido')} style={{ flex:1, padding:'6px 4px', borderRadius:'7px', border:esPerdido?'none':'1px solid #f5b8b8', fontSize:'11px', fontWeight:600, cursor:'pointer', background:esPerdido?'#A32D2D':'transparent', color:esPerdido?'#fff':'#A32D2D' }}>✗ Perdido</button>
+                  {/* Datos del contacto */}
+                  <div style={{ display:'flex', flexDirection:'column', gap:'3px', marginBottom:'6px' }}>
+                    {[
+                      {c:'nombre',l:'Nombre',p:'Nombre completo'},
+                      ...(contactoCRM.tipo==='empresa' ? [{c:'empresaNombre',l:'Empresa',p:'Nombre empresa'},{c:'cargo',l:'Cargo',p:'Cargo'}] : []),
+                      {c:'correo',l:'Email',p:'correo@email.com'},
+                      {c:'whatsapp',l:'WhatsApp',p:'8888-8888'},
+                      {c:'provincia',l:'Provincia',p:'Provincia'},
+                    ].map(f=>(
+                      <div key={f.c} style={{ display:'flex', alignItems:'center', gap:'4px' }}>
+                        <span style={{ color:'#8a99b3', minWidth:50, fontSize:9, fontWeight:600 }}>{f.l}</span>
+                        <input value={contactoCRM[f.c]||''} placeholder={f.p} onBlur={e=>guardarContactoCRM(f.c,e.target.value)} onChange={e=>setContactoCRM(prev=>({...prev,[f.c]:e.target.value}))}
+                          style={{ flex:1, border:'none', borderBottom:'1px solid transparent', outline:'none', fontSize:11, color:'#1a1a1a', fontWeight:500, padding:'2px 0', fontFamily:'inherit', background:'transparent' }}
+                          onFocus={e=>e.target.style.borderBottomColor='#2563eb'} onMouseLeave={e=>{if(document.activeElement!==e.target)e.target.style.borderBottomColor='transparent'}} />
                       </div>
-                      {esCerrado&&<button onClick={()=>reabrirLead(idx)} style={{ width:'100%', padding:'5px', borderRadius:'7px', border:'1px solid #dde3ed', background:'#fff', fontSize:'11px', color:'#666', cursor:'pointer', fontWeight:500 }}>Reabrir lead</button>}
-                    </div>
-                  )
-                })}
-                <button onClick={crearLead} style={{ width:'100%', padding:'8px', marginBottom:'6px', background:'var(--eco-primary,#1a3a5c)', color:'#fff', border:'none', borderRadius:'8px', fontSize:'13px', fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>+ Crear lead desde chat</button>
+                    ))}
+                  </div>
+                  <Divider />
+                  {/* Facturación */}
+                  <SectionLabel>Facturación</SectionLabel>
+                  <div style={{ display:'flex', gap:'4px', marginBottom:'6px' }}>
+                    {[['fisica','👤 Física'],['juridica','🏢 Jurídica']].map(([val,lbl])=>(
+                      <button key={val} onClick={()=>cambiarTipoFactCRM(val)} style={{ flex:1, padding:'5px', borderRadius:'7px', border:`1.5px solid ${(contactoCRM.facturacion?.tipoFact||'fisica')===val?(val==='juridica'?'#c5d8f8':'#a5d6a7'):'#dde3ed'}`, background:(contactoCRM.facturacion?.tipoFact||'fisica')===val?(val==='juridica'?'#e8f0fe':'#e8f5e9'):'#fff', cursor:'pointer', fontFamily:'inherit', fontSize:'10px', fontWeight:600, color:(contactoCRM.facturacion?.tipoFact||'fisica')===val?(val==='juridica'?'#1a3a5c':'#2e7d32'):'#888' }}>{lbl}</button>
+                    ))}
+                  </div>
+                  <div style={{ background:'#f8fafc', borderRadius:'6px', padding:'6px 8px', border:'1px solid #e8edf5', marginBottom:'8px' }}>
+                    {((contactoCRM.facturacion?.tipoFact||'fisica')==='juridica'
+                      ? [{id:'razonSocial',l:'Razón social',p:'Empresa S.A.'},{id:'cedulaJuridica',l:'Cédula jur.',p:'3-101-XXXXXX'},{id:'correoFacturacion',l:'Correo fact.',p:'facturacion@empresa.com'}]
+                      : [{id:'nombreFiscal',l:'Nombre fiscal',p:'Nombre completo'},{id:'cedulaFisica',l:'Cédula',p:'1-1234-5678'},{id:'correoFacturacion',l:'Correo fact.',p:'correo@email.com'}]
+                    ).map(f=>(
+                      <div key={f.id} style={{ display:'flex', alignItems:'center', gap:'4px', marginBottom:'3px' }}>
+                        <span style={{ color:'#8a99b3', minWidth:55, fontSize:9, fontWeight:600 }}>{f.l}</span>
+                        <input value={contactoCRM.facturacion?.campos?.[f.id]||''} placeholder={f.p}
+                          onChange={e=>{const v=e.target.value; setContactoCRM(prev=>({...prev,facturacion:{...prev.facturacion,campos:{...prev.facturacion?.campos,[f.id]:v}}}))}}
+                          onBlur={e=>guardarFacturacionCRM(contactoCRM.facturacion?.tipoFact||'fisica',f.id,e.target.value)}
+                          style={{ flex:1, border:'none', borderBottom:'1px solid transparent', outline:'none', fontSize:11, color:'#1a1a1a', fontWeight:500, padding:'2px 0', fontFamily:'inherit', background:'transparent' }}
+                          onFocus={e=>e.target.style.borderBottomColor='#2563eb'} />
+                      </div>
+                    ))}
+                  </div>
+                </>)}
                 <Divider />
-                <SectionLabel>Acciones</SectionLabel>
-                <button onClick={()=>navigate('/ventas')} style={{ width:'100%', padding:'8px', marginBottom:'6px', background:'#854F0B', color:'#fff', border:'none', borderRadius:'8px', fontSize:'13px', fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Cotizar desde este chat</button>
-                <button onClick={()=>navigate('/contactos')} style={{ width:'100%', padding:'8px', background:'transparent', color:'#555', border:'1px solid #dde3ed', borderRadius:'8px', fontSize:'13px', cursor:'pointer', fontFamily:'inherit' }}>Ver ficha de contacto</button>
+                {/* ── LEADS CRM ── */}
+                <SectionLabel>Leads activos ({leadsCRM.length})</SectionLabel>
+                {leadsCRM.length===0&&<div style={{ fontSize:'11px', color:'#bbb', textAlign:'center', padding:'6px 0' }}>Sin leads abiertos</div>}
+                {leadsCRM.map(lead=>(
+                  <div key={lead.id} onClick={()=>navigate(`/crm/lead/${lead.id}`)} style={{ border:'1px solid #dde3ed', borderRadius:'8px', padding:'8px 10px', marginBottom:'6px', background:'#fafbfd', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center' }}
+                    onMouseEnter={e=>e.currentTarget.style.background='#f0f4f8'} onMouseLeave={e=>e.currentTarget.style.background='#fafbfd'}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:'12px', fontWeight:600, color:'#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{lead.nombre||'Sin nombre'}</div>
+                      <div style={{ fontSize:'10px', color:'#888' }}>{lead.tipoLead==='empresa'?'🏢':'👤'} {lead.origen||'—'}</div>
+                    </div>
+                    <EtapaBadge etapa={lead.columnaId||lead.etapa} columnas={columnsPipeline} />
+                  </div>
+                ))}
+                <button onClick={iniciarCrearLead} style={{ width:'100%', padding:'8px', marginBottom:'6px', background:'var(--eco-primary,#1a3a5c)', color:'#fff', border:'none', borderRadius:'8px', fontSize:'12px', fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>+ Crear lead</button>
+                <Divider />
+                {/* ── COLABORADORES ── */}
+                <SectionLabel>Colaboradores</SectionLabel>
+                {(chatActivo.colaboradores||[]).length>0 && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'4px', marginBottom:'6px' }}>
+                    {(chatActivo.colaboradores||[]).map(uid=>{
+                      const u=usuarios.find(u=>u.uid===uid)
+                      return (
+                        <div key={uid} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'#f8fafc', borderRadius:6, fontSize:11 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                            <Avatar nombre={u?.nombre||u?.email||'?'} size={20} />
+                            <span style={{ fontWeight:500, color:'#1a1a1a' }}>{u?.nombre||u?.email||uid}</span>
+                          </div>
+                          <button onClick={()=>actualizarConversacion('colaboradores',(chatActivo.colaboradores||[]).filter(c=>c!==uid))}
+                            style={{ background:'none', border:'none', cursor:'pointer', color:'#ccc', fontSize:14, padding:'0 2px' }}
+                            onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#ccc'}>×</button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <select onChange={e=>{
+                  const uid=e.target.value; if(!uid) return
+                  if((chatActivo.colaboradores||[]).includes(uid)) return
+                  actualizarConversacion('colaboradores',[...(chatActivo.colaboradores||[]),uid])
+                  e.target.value=''
+                }} style={{ ...sel, fontSize:'11px', padding:'5px 8px', marginBottom:'6px' }}>
+                  <option value="">+ Pedir ayuda a...</option>
+                  {usuarios.filter(u=>u.uid!==chatActivo.agente&&!(chatActivo.colaboradores||[]).includes(u.uid)).map(u=>(
+                    <option key={u.uid} value={u.uid}>{u.nombre||u.email}</option>
+                  ))}
+                </select>
               </div>
             </>
           )}
-          {tipoActivo==='interno'&&(
-            <div style={{ padding:'16px 14px' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
-                <div style={{ width:44, height:44, borderRadius:'50%', background:'#0F6E56', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0 }}>💬</div>
-                <div><div style={{ fontWeight:700, fontSize:14 }}>{chatActivo.nombre}</div><div style={{ fontSize:11, color:'#888' }}>{(chatActivo.miembros||[]).length} miembros</div></div>
+          {/* ── MODAL CREAR LEAD ── */}
+          {modalLead && (
+            <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.4)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center' }}
+              onClick={e=>e.target===e.currentTarget&&setModalLead(null)}>
+              <div style={{ background:'#fff', borderRadius:14, width:'90%', maxWidth:340, padding:20, boxShadow:'0 10px 40px rgba(0,0,0,.2)' }}>
+                {modalLead==='tipo' && (<>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#1a3a5c', marginBottom:12 }}>¿Este lead es para...?</div>
+                  <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                    <button onClick={()=>{setNuevoLead({tipoLead:'empresa',tipoFactura:'juridica'});setModalLead('nombre')}} style={{ flex:1, padding:'14px 8px', borderRadius:12, border:'1.5px solid #c5d8f8', background:'#e8f0fe', cursor:'pointer', fontFamily:'inherit', textAlign:'center' }}>
+                      <div style={{ fontSize:24, marginBottom:4 }}>🏢</div>
+                      <div style={{ fontSize:12, fontWeight:700, color:'#1a3a5c' }}>{contactoCRM?.empresaNombre||'Empresa'}</div>
+                    </button>
+                    <button onClick={()=>{setNuevoLead({tipoLead:'persona'});setModalLead('factura')}} style={{ flex:1, padding:'14px 8px', borderRadius:12, border:'1.5px solid #a5d6a7', background:'#e8f5e9', cursor:'pointer', fontFamily:'inherit', textAlign:'center' }}>
+                      <div style={{ fontSize:24, marginBottom:4 }}>👤</div>
+                      <div style={{ fontSize:12, fontWeight:700, color:'#2e7d32' }}>Personal</div>
+                    </button>
+                  </div>
+                  <button onClick={()=>setModalLead(null)} style={{ width:'100%', padding:6, background:'none', border:'none', cursor:'pointer', fontSize:11, color:'#888', fontFamily:'inherit' }}>Cancelar</button>
+                </>)}
+                {modalLead==='factura' && (<>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#1a3a5c', marginBottom:6 }}>Factura a nombre de:</div>
+                  <div style={{ fontSize:11, color:'#888', marginBottom:12 }}>El lead es personal, ¿pero la factura va a nombre de la empresa?</div>
+                  <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                    <button onClick={()=>{setNuevoLead(p=>({...p,tipoFactura:'juridica'}));setModalLead('nombre')}} style={{ flex:1, padding:'12px 8px', borderRadius:12, border:'1.5px solid #c5d8f8', background:'#e8f0fe', cursor:'pointer', fontFamily:'inherit', textAlign:'center' }}>
+                      <div style={{ fontSize:18, marginBottom:2 }}>🏢</div>
+                      <div style={{ fontSize:11, fontWeight:600, color:'#1a3a5c' }}>Empresa</div>
+                    </button>
+                    <button onClick={()=>{setNuevoLead(p=>({...p,tipoFactura:'fisica'}));setModalLead('nombre')}} style={{ flex:1, padding:'12px 8px', borderRadius:12, border:'1.5px solid #a5d6a7', background:'#e8f5e9', cursor:'pointer', fontFamily:'inherit', textAlign:'center' }}>
+                      <div style={{ fontSize:18, marginBottom:2 }}>👤</div>
+                      <div style={{ fontSize:11, fontWeight:600, color:'#2e7d32' }}>Personal</div>
+                    </button>
+                  </div>
+                  <button onClick={()=>setModalLead('tipo')} style={{ width:'100%', padding:6, background:'none', border:'none', cursor:'pointer', fontSize:11, color:'#888', fontFamily:'inherit' }}>← Volver</button>
+                </>)}
+                {modalLead==='nombre' && (<>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#1a3a5c', marginBottom:4 }}>Nombre del lead</div>
+                  <div style={{ fontSize:11, color:'#888', marginBottom:10 }}>
+                    {nuevoLead.tipoLead==='empresa'?'🏢 Empresa':'👤 Personal'} · Factura {nuevoLead.tipoFactura==='juridica'?'🏢 jurídica':'👤 física'}
+                  </div>
+                  <input id="input-nombre-lead" placeholder="Ej: Mantenimiento 3 equipos" autoFocus
+                    style={{ width:'100%', padding:'10px 12px', border:'1.5px solid #dde3ed', borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', marginBottom:12 }}
+                    onFocus={e=>e.target.style.borderColor='#1a3a5c'} onBlur={e=>e.target.style.borderColor='#dde3ed'}
+                    onKeyDown={e=>{if(e.key==='Enter')finalizarCrearLead(e.target.value)}} />
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={()=>setModalLead(contactoCRM?.empresaNombre?'tipo':null)} style={{ flex:1, padding:8, border:'1px solid #dde3ed', borderRadius:8, background:'#fff', cursor:'pointer', fontSize:12, fontFamily:'inherit', color:'#888' }}>Cancelar</button>
+                    <button onClick={()=>finalizarCrearLead(document.getElementById('input-nombre-lead')?.value||'')} style={{ flex:1, padding:8, border:'none', borderRadius:8, background:'var(--eco-primary,#1a3a5c)', color:'#fff', cursor:'pointer', fontSize:12, fontWeight:600, fontFamily:'inherit' }}>Crear lead</button>
+                  </div>
+                </>)}
               </div>
-              <SectionLabel>Miembros del grupo</SectionLabel>
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                {(chatActivo.miembros||[]).map(uid=>{const u=usuarios.find(u=>u.uid===uid);const esTu=uid===usuarioActual?.uid;return(
-                  <div key={uid} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', background:esTu?'#f0faf6':'#fafafa', borderRadius:8 }}>
-                    <Avatar nombre={u?.nombre||u?.email||'?'} foto={u?.fotoURL} size={28} />
-                    <div style={{ flex:1 }}><p style={{ fontSize:12, fontWeight:500, margin:0 }}>{u?.nombre||u?.email||uid}</p>{u?.rol&&<p style={{ fontSize:10, color:'#aaa', margin:0 }}>{u.rol}</p>}</div>
-                    {esTu&&<span style={{ fontSize:10, color:'#0F6E56', fontWeight:600 }}>Tú</span>}
+            </div>
+          )}
+          {tipoActivo==='interno'&&(
+            <div style={{ padding:'14px 14px', overflowY:'auto', flex:1 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                <div style={{ width:36, height:36, borderRadius:'50%', background:'#0F6E56', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>💬</div>
+                <div><div style={{ fontWeight:700, fontSize:13 }}>{chatActivo.nombre}</div><div style={{ fontSize:10, color:'#888' }}>Chat grupal</div></div>
+              </div>
+              {/* Miembros compacto */}
+              <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:10 }}>
+                {(chatActivo.miembros||[]).map(uid=>{const u=usuarios.find(u=>u.uid===uid);return(
+                  <div key={uid} style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 8px', background:'#f0faf6', borderRadius:12, fontSize:10 }}>
+                    <Avatar nombre={u?.nombre||'?'} size={16} />
+                    <span style={{ fontWeight:500 }}>{(u?.nombre||u?.email||'').split(' ')[0]}</span>
                   </div>
                 )})}
+              </div>
+              <Divider />
+              {/* ── TAREAS ── */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                <SectionLabel>Tareas ({tareas.filter(t=>t.estado!=='completada').length})</SectionLabel>
+                <button onClick={()=>setModalTarea(true)} style={{ background:'none', border:'1px solid #0F6E56', borderRadius:6, padding:'3px 8px', fontSize:10, fontWeight:600, color:'#0F6E56', cursor:'pointer', fontFamily:'inherit' }}>+ Nueva</button>
+              </div>
+              <div style={{ display:'flex', gap:3, marginBottom:8 }}>
+                {[['pendientes','Pendientes'],['mias','Mis tareas'],['todas','Todas']].map(([k,l])=>(
+                  <button key={k} onClick={()=>setFiltroTareas(k)} style={{ padding:'3px 8px', borderRadius:6, fontSize:9, fontWeight:600, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${filtroTareas===k?'#0F6E56':'#dde3ed'}`, background:filtroTareas===k?'#0F6E56':'#fff', color:filtroTareas===k?'#fff':'#888' }}>{l}</button>
+                ))}
+              </div>
+              {tareas.filter(t=>{
+                if(filtroTareas==='pendientes') return t.estado!=='completada'
+                if(filtroTareas==='mias') return (t.asignados||[]).includes(usuarioActual?.uid)&&t.estado!=='completada'
+                return true
+              }).map(t=>{
+                const prioColor={alta:'#E24B4A',media:'#EF9F27',baja:'#888'}
+                return (
+                  <div key={t.id} style={{ border:'1px solid #e8edf5', borderRadius:8, padding:'8px 10px', marginBottom:6, background:t.estado==='completada'?'#f0faf4':'#fafbfd' }}>
+                    <div style={{ display:'flex', alignItems:'flex-start', gap:6 }}>
+                      <button onClick={()=>cambiarEstadoTarea(t.id, t.estado==='completada'?'pendiente':'completada')}
+                        style={{ width:18, height:18, borderRadius:4, border:`1.5px solid ${t.estado==='completada'?'#0F6E56':'#ccc'}`, background:t.estado==='completada'?'#0F6E56':'#fff', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>
+                        {t.estado==='completada'&&<span style={{ color:'#fff', fontSize:11, lineHeight:1 }}>✓</span>}
+                      </button>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:600, color:t.estado==='completada'?'#888':'#1a1a1a', textDecoration:t.estado==='completada'?'line-through':'none' }}>{t.titulo}</div>
+                        {t.descripcion&&<div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{t.descripcion}</div>}
+                        <div style={{ display:'flex', gap:4, marginTop:4, flexWrap:'wrap', alignItems:'center' }}>
+                          <span style={{ fontSize:8, padding:'1px 5px', borderRadius:4, background:prioColor[t.prioridad||'media']+'20', color:prioColor[t.prioridad||'media'], fontWeight:700 }}>{(t.prioridad||'media').toUpperCase()}</span>
+                          {(t.asignados||[]).map(uid=>{const u=usuarios.find(u=>u.uid===uid);return(
+                            <span key={uid} style={{ fontSize:9, color:'#888' }}>{(u?.nombre||'').split(' ')[0]}</span>
+                          )})}
+                          {t.fechaLimite&&<span style={{ fontSize:9, color:new Date(t.fechaLimite)<new Date()?'#E24B4A':'#888' }}>📅 {t.fechaLimite}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    {t.estado!=='completada'&&t.estado!=='progreso'&&(
+                      <button onClick={()=>cambiarEstadoTarea(t.id,'progreso')} style={{ width:'100%', marginTop:6, padding:4, border:'1px solid #e8edf5', borderRadius:5, background:'#fff', cursor:'pointer', fontSize:10, color:'#0F6E56', fontWeight:600, fontFamily:'inherit' }}>▶ En progreso</button>
+                    )}
+                  </div>
+                )
+              })}
+              {tareas.filter(t=>filtroTareas==='pendientes'?t.estado!=='completada':true).length===0&&(
+                <div style={{ fontSize:11, color:'#bbb', textAlign:'center', padding:'10px 0' }}>Sin tareas</div>
+              )}
+            </div>
+          )}
+          {/* ── MODAL NUEVA TAREA ── */}
+          {modalTarea&&(
+            <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.4)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center' }}
+              onClick={e=>e.target===e.currentTarget&&setModalTarea(false)}>
+              <div style={{ background:'#fff', borderRadius:14, width:'90%', maxWidth:340, padding:20, boxShadow:'0 10px 40px rgba(0,0,0,.2)' }}>
+                <div style={{ fontSize:14, fontWeight:700, color:'#0F6E56', marginBottom:12 }}>Nueva tarea</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div>
+                    <span style={{ fontSize:10, color:'#8a99b3', fontWeight:600 }}>Título *</span>
+                    <input id="tarea-titulo" placeholder="¿Qué hay que hacer?" autoFocus
+                      style={{ width:'100%', padding:'8px 10px', border:'1.5px solid #dde3ed', borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none' }}
+                      onFocus={e=>e.target.style.borderColor='#0F6E56'} onBlur={e=>e.target.style.borderColor='#dde3ed'} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize:10, color:'#8a99b3', fontWeight:600 }}>Descripción</span>
+                    <textarea id="tarea-desc" rows={2} placeholder="Detalles (opcional)"
+                      style={{ width:'100%', padding:'8px 10px', border:'1.5px solid #dde3ed', borderRadius:8, fontSize:11, fontFamily:'inherit', outline:'none', resize:'vertical' }} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize:10, color:'#8a99b3', fontWeight:600 }}>Asignar a</span>
+                    <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginTop:4 }}>
+                      {(chatActivo?.miembros||[]).map(uid=>{const u=usuarios.find(u=>u.uid===uid);return(
+                        <label key={uid} style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:8, border:'1px solid #dde3ed', fontSize:10, cursor:'pointer', background:'#fff' }}>
+                          <input type="checkbox" defaultChecked={uid===usuarioActual?.uid} data-uid={uid} style={{ width:12, height:12, accentColor:'#0F6E56' }} />
+                          {(u?.nombre||u?.email||'').split(' ')[0]}
+                        </label>
+                      )})}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <div style={{ flex:1 }}>
+                      <span style={{ fontSize:10, color:'#8a99b3', fontWeight:600 }}>Prioridad</span>
+                      <select id="tarea-prio" defaultValue="media" style={{ width:'100%', padding:'6px 8px', border:'1.5px solid #dde3ed', borderRadius:8, fontSize:11, fontFamily:'inherit' }}>
+                        <option value="baja">Baja</option><option value="media">Media</option><option value="alta">Alta</option>
+                      </select>
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <span style={{ fontSize:10, color:'#8a99b3', fontWeight:600 }}>Fecha límite</span>
+                      <input id="tarea-fecha" type="date" style={{ width:'100%', padding:'6px 8px', border:'1.5px solid #dde3ed', borderRadius:8, fontSize:11, fontFamily:'inherit' }} />
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display:'flex', gap:8, marginTop:14 }}>
+                  <button onClick={()=>setModalTarea(false)} style={{ flex:1, padding:8, border:'1px solid #dde3ed', borderRadius:8, background:'#fff', cursor:'pointer', fontSize:12, fontFamily:'inherit', color:'#888' }}>Cancelar</button>
+                  <button onClick={()=>{
+                    const titulo=document.getElementById('tarea-titulo')?.value
+                    if(!titulo?.trim()){alert('El título es obligatorio');return}
+                    const checks=document.querySelectorAll('[data-uid]:checked')
+                    const asignados=Array.from(checks).map(c=>c.dataset.uid)
+                    crearTareaChat({
+                      titulo:titulo.trim(),
+                      descripcion:document.getElementById('tarea-desc')?.value||'',
+                      asignados,
+                      prioridad:document.getElementById('tarea-prio')?.value||'media',
+                      fechaLimite:document.getElementById('tarea-fecha')?.value||'',
+                    })
+                    setModalTarea(false)
+                  }} style={{ flex:1, padding:8, border:'none', borderRadius:8, background:'#0F6E56', color:'#fff', cursor:'pointer', fontSize:12, fontWeight:600, fontFamily:'inherit' }}>Crear tarea</button>
+                </div>
               </div>
             </div>
           )}

@@ -11,10 +11,24 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  doc, getDoc, updateDoc, collection, getDocs,
-  serverTimestamp, query, orderBy,
+  doc, getDoc, updateDoc, addDoc, collection, getDocs, where,
+  serverTimestamp, query, orderBy, onSnapshot, runTransaction,
 } from "firebase/firestore";
 import { db } from "../../../firebase/config";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import DateInput from "../../../shared/components/DateInput";
+
+function SortableRow({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1, background: isDragging ? '#f0f4f8' : undefined }} {...attributes}>
+      <td style={{ width: 28, textAlign: 'center', cursor: 'grab', color: '#ccc', fontSize: 14, padding: '0 4px' }} {...listeners}>⠿</td>
+      {children}
+    </tr>
+  );
+}
 
 const sym = (mon) => mon === "USD" ? "$" : "₡";
 const fmtN = (n) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -41,17 +55,13 @@ const calcLinea = (p) => {
 };
 
 const calcOpcion = (op, descGlobal, descGlobalTipo) => {
-  const prods    = (op.productos || []);
-  const subtotal = prods.reduce((a, p) => a + calcLinea(p).neto, 0);
-  const descG    = descGlobalTipo === "%" ? subtotal * (Number(descGlobal || 0) / 100) : Number(descGlobal || 0);
-  const base     = subtotal - descG;
-  const iva      = prods.reduce((a, p) => {
-    const calc  = calcLinea(p);
-    return a + calc.imp;
-  }, 0);
-  // Recalc iva after global discount proportionally
-  const ivaReal  = base > 0 && subtotal > 0 ? iva * (base / subtotal) : 0;
-  return { subtotal, descG, base, iva: ivaReal, total: base + ivaReal };
+  const prods      = (op.productos || []);
+  const subtotal   = prods.reduce((a, p) => a + calcLinea(p).base, 0);
+  const descLineas = prods.reduce((a, p) => { const c = calcLinea(p); return a + (c.base - c.neto); }, 0);
+  const descG      = descGlobalTipo === "%" ? (subtotal - descLineas) * (Number(descGlobal || 0) / 100) : Number(descGlobal || 0);
+  const iva        = prods.reduce((a, p) => a + calcLinea(p).imp, 0);
+  const total      = subtotal - descLineas - descG + iva;
+  return { subtotal, descLineas, descG, iva, total };
 };
 
 const COLS_DEFAULT = { costo: true, margen: true, margenp: true, udm: false, plazo: false, subtotsin: false, totcon: true, imppct: false, iva: true };
@@ -108,8 +118,10 @@ export default function CotizacionForm() {
   const navigate = useNavigate();
 
   const [cot, setCot] = useState(null);
+  const [cotOriginal, setCotOriginal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [hayCambios, setHayCambios] = useState(false);
   const [contactos, setContactos] = useState([]);
   const [productos, setProductos] = useState([]);
   const [etiquetas, setEtiquetas] = useState([]);
@@ -123,6 +135,7 @@ export default function CotizacionForm() {
   const [cols, setCols] = useState(COLS_DEFAULT);
   const [showCols, setShowCols] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [copiado, setCopiado] = useState(false);
   const [alertaEmpresa, setAlertaEmpresa] = useState(false);
   const [portadas, setPortadas] = useState([]);
@@ -130,6 +143,25 @@ export default function CotizacionForm() {
   const [showSelectorFichas, setShowSelectorFichas] = useState(false);
   const [plantillasObs, setPlantillasObs] = useState([]);
   const [showModalPlantillas, setShowModalPlantillas] = useState(false);
+  const [confirmarMoneda, setConfirmarMoneda] = useState(null);
+  const [leadsContacto, setLeadsContacto] = useState([]);
+  const [showLeads, setShowLeads] = useState(false);
+  const [aprobando, setAprobando] = useState(false);
+  const [pasoAprobacion, setPasoAprobacion] = useState(0);
+  const [opElegida, setOpElegida] = useState(null);
+  const [opcionalesElegidos, setOpcionalesElegidos] = useState({});
+  const [tasasGlobal, setTasasGlobal] = useState(null);
+
+  // Cargar tasas globales desde configuracion/tasas
+  useEffect(() => {
+    return onSnapshot(doc(db, 'configuracion', 'tasas'), snap => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setTasasGlobal({ compra: Number(d.compra || 0), venta: Number(d.venta || 0) });
+      }
+    });
+  }, []);
+
 
   useEffect(() => { cargarTodo(); }, [id]);
 
@@ -144,7 +176,11 @@ export default function CotizacionForm() {
         getDocs(collection(db, "listasPrecios")),
       ]);
 
-      if (cotSnap.exists()) setCot({ id: cotSnap.id, ...cotSnap.data() });
+      if (cotSnap.exists()) {
+        const data = { id: cotSnap.id, ...cotSnap.data() };
+        setCot(data);
+        setCotOriginal(JSON.parse(JSON.stringify(data)));
+      }
       setContactos(contSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setProductos(prodSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.esVenta !== false));
       setEtiquetas(etSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -165,33 +201,192 @@ export default function CotizacionForm() {
     finally { setLoading(false); }
   };
 
-  const guardar = useCallback(async (datos) => {
-    if (!datos) return;
-    setGuardando(true);
-    try { await updateDoc(doc(db, "cotizaciones", id), { ...datos, actualizadoEn: serverTimestamp() }); }
-    catch (e) { console.error(e); }
-    finally { setGuardando(false); }
-  }, [id]);
+  const guardar = useCallback(() => { setHayCambios(true); }, []);
 
-  const upd = (campo, valor) => { setCot(c => ({ ...c, [campo]: valor })); guardar({ [campo]: valor }); };
+  const guardarEnFirestore = async () => {
+    if (!cot || !id) return;
+    setGuardando(true);
+    try {
+      const { id: _id, ...datos } = cot;
+      await updateDoc(doc(db, "cotizaciones", id), { ...datos, actualizadoEn: serverTimestamp() });
+      setCotOriginal(JSON.parse(JSON.stringify(cot)));
+      setHayCambios(false);
+    } catch (e) { console.error(e); }
+    finally { setGuardando(false); }
+  };
+
+  const cancelarCambios = () => {
+    if (!cotOriginal) return;
+    setCot(JSON.parse(JSON.stringify(cotOriginal)));
+    setHayCambios(false);
+  };
+
+  const upd = (campo, valor) => { setCot(c => ({ ...c, [campo]: valor })); guardar(); };
+
+  const cambiarMoneda = (nuevaMon) => {
+    if (nuevaMon === mon) return;
+    setConfirmarMoneda(nuevaMon);
+  };
+
+  const ejecutarCambioMoneda = () => {
+    const nuevaMon = confirmarMoneda;
+    setConfirmarMoneda(null);
+    const tasaUsar = nuevaMon === "CRC" ? tasaVenta : tasaCompra;
+    const convertir = (productos) => (productos || []).map(p => {
+      const tl = Number(p.tasaIndividual || 0) || tasaUsar;
+      const precioConvertido = nuevaMon === "CRC"
+        ? (Number(p.precio || 0) * tl).toFixed(2)
+        : (Number(p.precio || 0) / tl).toFixed(2);
+      return { ...p, precio: precioConvertido };
+    });
+    const opciones = cot.opciones.map(op => ({
+      ...op,
+      productos: convertir(op.productos),
+      productosOpcionales: convertir(op.productosOpcionales),
+    }));
+    const payload = { moneda: nuevaMon, opciones };
+    setCot(c => ({ ...c, ...payload }));
+    guardar();
+  };
+
+  const iniciarAprobacion = () => {
+    const opActual = cot.opciones.find(o => o.id === cot.opcionActiva) || cot.opciones[0];
+    const pasos = [];
+    if (cot.opciones.length > 1) pasos.push("opcion");
+    if ((opActual?.productosOpcionales || []).length > 0) pasos.push("opcionales");
+    pasos.push("confirmar");
+    setPasosAprobacion(pasos);
+    setPasoAprobacion(0);
+    setOpElegida(cot.opcionActiva || cot.opciones[0]?.id);
+    setOpcionalesElegidos({});
+    setAprobando(true);
+  };
+
+  const [pasosAprobacion, setPasosAprobacion] = useState([]);
+
+  const confirmarAprobacion = async () => {
+    try {
+      await updateDoc(doc(db, 'cotizaciones', id), {
+        estado: "Aceptada", aceptada: true,
+        opcionElegida: opElegida,
+        opcionalesElegidos: opcionalesElegidos,
+        aprobadaEn: serverTimestamp(),
+      });
+      setCot(prev => ({ ...prev, estado: "Aceptada", aceptada: true, opcionElegida: opElegida, opcionalesElegidos: opcionalesElegidos }));
+      setAprobando(false);
+    } catch (e) { console.error(e); }
+  };
+
+  const devolverBorrador = async () => {
+    await updateDoc(doc(db, 'cotizaciones', id), { estado: "Borrador", aceptada: false, opcionElegida: null, opcionalesElegidos: null, aprobadaEn: null });
+    setCot(prev => ({ ...prev, estado: "Borrador", aceptada: false }));
+  };
+
+  const pasarAFactura = async () => {
+    if (cot.facturaId) { navigate(`/facturacion/${cot.facturaId}`); return; }
+    try {
+      const opFinal = cot.opciones?.find(o => o.id === (cot.opcionElegida || cot.opcionActiva)) || cot.opciones?.[0];
+      const prods = opFinal?.productos || [];
+      const sub = prods.reduce((a, p) => a + (Number(p.precio) * Number(p.cantidad || 1)), 0);
+      const descLineas = prods.reduce((a, p) => {
+        const base = Number(p.precio) * Number(p.cantidad || 1);
+        const d = p.descTipo === "%" ? base * (Number(p.desc || 0) / 100) : Number(p.desc || 0) * Number(p.cantidad || 1);
+        return a + d;
+      }, 0);
+      const descG = cot.descuentoGlobalTipo === "%" ? (sub - descLineas) * (Number(cot.descuentoGlobal || 0) / 100) : Number(cot.descuentoGlobal || 0);
+      const base = sub - descLineas - descG;
+      const imp = prods.reduce((a, p) => {
+        const pb = Number(p.precio) * Number(p.cantidad || 1);
+        const pd = p.descTipo === "%" ? pb * (Number(p.desc || 0) / 100) : Number(p.desc || 0) * Number(p.cantidad || 1);
+        return a + (pb - pd) * (Number(p.ivaPct ?? 13) / 100);
+      }, 0);
+      const total = base + imp;
+
+      // Consecutivo
+      const configRef = doc(db, "config", "consecutivos");
+      const counterRef = doc(db, "config", "contadores");
+      const numero = await runTransaction(db, async (tx) => {
+        const cs = await tx.get(configRef);
+        const ct = await tx.get(counterRef);
+        const prefijo = cs.exists() ? (cs.data().prefijoFactura || "FAC") : "FAC";
+        const contadores = ct.exists() ? ct.data() : {};
+        const actual = Number(contadores.prefijoFactura || 0) + 1;
+        tx.set(counterRef, { ...contadores, prefijoFactura: actual }, { merge: true });
+        return `${prefijo}-${String(actual).padStart(3, "0")}`;
+      });
+
+      const factRef = await addDoc(collection(db, "facturas"), {
+        numero,
+        cotizacionId: id,
+        cotizacionNumero: cot.numero,
+        clienteId: cot.clienteId,
+        clienteNombre: cot.clienteNombre,
+        facturarEmpresa: cot.facturarEmpresa,
+        empresaNombre: cot.empresaNombre || "",
+        empresaCedula: cot.empresaCedula || "",
+        contactoNombre: cot.contactoNombre || "",
+        leadId: cot.leadId || null,
+        leadNombre: cot.leadNombre || "",
+        moneda: cot.moneda,
+        tasaVenta: tasaVenta || null,
+        tasaCompra: tasaCompra || null,
+        opciones: cot.opciones,
+        opcionActiva: cot.opcionElegida || cot.opcionActiva,
+        opcionalesElegidos: cot.opcionalesElegidos || {},
+        descuentoGlobal: cot.descuentoGlobal,
+        descuentoGlobalTipo: cot.descuentoGlobalTipo,
+        subtotal: sub,
+        descuento: descLineas + descG,
+        base,
+        impuesto: imp,
+        total,
+        estado: "Sin Pagar",
+        pagos: [],
+        totalPagado: 0,
+        saldo: total,
+        observaciones: cot.observaciones || "",
+        fechaEmision: new Date().toISOString().split("T")[0],
+        fechaVencimiento: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+        creadoEn: serverTimestamp(),
+      });
+
+      await updateDoc(doc(db, 'cotizaciones', id), { facturaId: factRef.id, estado: "Facturada" });
+      setCot(prev => ({ ...prev, facturaId: factRef.id, estado: "Facturada" }));
+      navigate(`/facturacion/${factRef.id}`);
+    } catch (err) { console.error("Error creando factura:", err); alert("Error al crear factura: " + err.message); }
+  };
 
   const updOpcion = (opId, campo, valor) => {
     const ops = cot.opciones.map(o => o.id === opId ? { ...o, [campo]: valor } : o);
     setCot({ ...cot, opciones: ops });
-    guardar({ opciones: ops });
+    guardar();
   };
 
-  const selContacto = (c) => {
+  const selContacto = async (c) => {
     const payload = { clienteId: c.id, clienteNombre: c.nombre, contactoNombre: c.nombre, facturarEmpresa: false, empresaId: c.empresaId || null, empresaNombre: c.empresaNombre || "", empresaCedula: c.empresaCedula || "" };
     setCot(prev => ({ ...prev, ...payload }));
-    guardar(payload);
+    guardar();
     setShowContactos(false); setBusqContacto(c.nombre);
     if (c.empresaId || c.empresaNombre) setAlertaEmpresa(true);
+    // Cargar leads del contacto
+    try {
+      const snap = await getDocs(query(collection(db, 'leads'), where('contactoId', '==', c.id)));
+      const leads = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(l => l.estado !== 'perdido');
+      setLeadsContacto(leads);
+      if (leads.length > 0) setShowLeads(true);
+    } catch { setLeadsContacto([]); }
+  };
+
+  const selLead = (lead) => {
+    const payload = { leadId: lead.id, leadNombre: lead.nombre || '' };
+    setCot(prev => ({ ...prev, ...payload }));
+    guardar();
+    setShowLeads(false);
   };
 
   const setFacturacion = (tipo) => {
     const facturarEmpresa = tipo === "empresa";
-    setCot({ ...cot, facturarEmpresa }); guardar({ facturarEmpresa }); setAlertaEmpresa(false);
+    setCot({ ...cot, facturarEmpresa }); guardar(); setAlertaEmpresa(false);
   };
 
   // ── Precio desde lista predeterminada ──
@@ -242,7 +437,7 @@ export default function CotizacionForm() {
         const fichasActualizadas = [...fichasActuales, ...fichasNuevas];
         const ops = cot.opciones.map(o => o.id === opId ? { ...o, productos: prods } : o);
         setCot(c => ({ ...c, opciones: ops, fichasTecnicas: fichasActualizadas }));
-        guardar({ opciones: ops, fichasTecnicas: fichasActualizadas });
+        guardar();
         setShowProducto(p => ({ ...p, [opId]: false })); setBusqProducto(p => ({ ...p, [opId]: "" }));
         return;
       }
@@ -262,6 +457,13 @@ export default function CotizacionForm() {
     updOpcion(opId, "productos", op.productos.map(p => p._lid === lid ? { ...p, [campo]: valor } : p));
   };
 
+  const reorderLineas = (opId, oldIndex, newIndex) => {
+    const op = cot.opciones.find(o => o.id === opId);
+    if (!op) return;
+    const reordered = arrayMove(op.productos, oldIndex, newIndex);
+    updOpcion(opId, "productos", reordered);
+  };
+
   const elimLinea = (opId, lid) => {
     const op = cot.opciones.find(o => o.id === opId);
     updOpcion(opId, "productos", op.productos.filter(p => p._lid !== lid));
@@ -278,7 +480,7 @@ export default function CotizacionForm() {
     if (cot.opciones.length <= 1) return;
     const ops = cot.opciones.filter(o => o.id !== opId);
     setCot({ ...cot, opciones: ops, opcionActiva: ops[0].id });
-    guardar({ opciones: ops, opcionActiva: ops[0].id });
+    guardar();
   };
 
   const duplicarOpcion = (opId) => {
@@ -289,11 +491,23 @@ export default function CotizacionForm() {
     const copia = { ...origen, id: next, nombre: `Opción ${next}`, productos: (origen.productos || []).map(p => ({ ...p, _lid: genId() })), productosOpcionales: (origen.productosOpcionales || []).map(p => ({ ...p, _lid: genId() })) };
     const ops = [...cot.opciones, copia];
     setCot({ ...cot, opciones: ops, opcionActiva: next });
-    guardar({ opciones: ops, opcionActiva: next });
+    guardar();
   };
 
   const copiarEnlace = () => { navigator.clipboard.writeText(`${window.location.origin}/cotizacion/${id}`); setCopiado(true); setTimeout(() => setCopiado(false), 2000); };
-  const marcarEnviada = async () => { setEnviando(true); await guardar({ estado: "Enviada", enviadoEn: serverTimestamp() }); setCot(c => ({ ...c, estado: "Enviada" })); setEnviando(false); copiarEnlace(); };
+  const marcarEnviada = async () => {
+    setEnviando(true);
+    try {
+      // Guardar todo + marcar como enviada
+      const { id: _id, ...datos } = { ...cot, estado: "Enviada", enviadoEn: serverTimestamp() };
+      await updateDoc(doc(db, "cotizaciones", id), { ...datos, actualizadoEn: serverTimestamp() });
+      setCot(c => ({ ...c, estado: "Enviada" }));
+      setCotOriginal(JSON.parse(JSON.stringify({ ...cot, estado: "Enviada" })));
+      setHayCambios(false);
+    } catch (e) { console.error(e); }
+    finally { setEnviando(false); }
+    copiarEnlace();
+  };
 
   const productosFiltrados = (busq) => {
     const q = (busq || "").toLowerCase();
@@ -317,13 +531,16 @@ export default function CotizacionForm() {
   const opActiva = cot.opciones.find(o => o.id === cot.opcionActiva) || cot.opciones[0];
   const totales = opActiva ? calcOpcion(opActiva, cot.descuentoGlobal, cot.descuentoGlobalTipo) : {};
   const mon = cot.moneda || "USD";
-  const tasa = Number(cot.tasa || 519.5);
+  const tasaVenta = tasasGlobal?.venta || 0;
+  const tasaCompra = tasasGlobal?.compra || 0;
+  const tasa = mon === "CRC" ? tasaVenta : tasaCompra;
   const monContraria = mon === "USD" ? "CRC" : "USD";
+  const getTasaLinea = (p) => Number(p.tasaIndividual || 0) || tasa;
   const contactosFiltrados = contactos.filter(c => c.nombre?.toLowerCase().includes(busqContacto.toLowerCase()));
   const adjuntosDisponibles = getAdjuntosDisponibles();
   const fichasActuales = cot.fichasTecnicas || [];
 
-  const estadoColors = { Borrador:{ bg:"#F1EFE8", color:"#5F5E5A" }, Enviada:{ bg:"#E6F1FB", color:"#185FA5" }, Vista:{ bg:"#EEEDFE", color:"#3C3489" }, Aceptada:{ bg:"#EAF3DE", color:"#3B6D11" }, Rechazada:{ bg:"#FCEBEB", color:"#A32D2D" } };
+  const estadoColors = { Borrador:{ bg:"#F1EFE8", color:"#5F5E5A" }, Enviada:{ bg:"#E6F1FB", color:"#185FA5" }, Vista:{ bg:"#EEEDFE", color:"#3C3489" }, Aceptada:{ bg:"#EAF3DE", color:"#3B6D11" }, Rechazada:{ bg:"#FCEBEB", color:"#A32D2D" }, Facturada:{ bg:"#E6F1FB", color:"#185FA5" } };
   const ec = estadoColors[cot.estado] || estadoColors.Borrador;
 
   const s = {
@@ -335,7 +552,7 @@ export default function CotizacionForm() {
     miniInp:    { padding:"4px 6px", border:"0.5px solid rgba(0,0,0,.15)", borderRadius:5, fontSize:12, outline:"none", background:"#fff", color:"inherit", fontFamily:"inherit" },
     btn:        { padding:"6px 14px", border:"0.5px solid rgba(0,0,0,.15)", borderRadius:7, fontSize:12, cursor:"pointer", background:"#fff", fontFamily:"inherit" },
     btnPrimary: { padding:"7px 16px", background:"var(--eco-primary,#1a3a5c)", color:"#fff", border:"none", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer" },
-    grid4:      { display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12 },
+    grid4:      { display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 },
     divider:    { border:"none", borderTop:"0.5px solid rgba(0,0,0,.06)", margin:"14px 0" },
     th:         { padding:"9px 10px", textAlign:"left", fontWeight:600, fontSize:10, color:"#888", textTransform:"uppercase", letterSpacing:".4px", borderBottom:"1px solid #eef0f4", background:"#f8f9fb", whiteSpace:"nowrap" },
     td:         { padding:"10px 10px", borderBottom:"0.5px solid #f0f2f5", verticalAlign:"middle", fontSize:13, color:"#1a1a1a" },
@@ -343,6 +560,180 @@ export default function CotizacionForm() {
 
   return (
     <div style={s.page}>
+
+      {aprobando && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", backdropFilter:"blur(3px)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={e => e.target === e.currentTarget && setAprobando(false)}>
+          <div style={{ background:"#fff", borderRadius:14, width:"90%", maxWidth:500, boxShadow:"0 20px 60px rgba(0,0,0,.2)", overflow:"hidden" }}>
+            {/* Stepper */}
+            <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0f2f5", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                {pasosAprobacion.map((p, i) => (
+                  <div key={p} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <div style={{ width:26, height:26, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", background: i < pasoAprobacion ? "#EAF3DE" : i === pasoAprobacion ? "#1a3a5c" : "#eee", color: i < pasoAprobacion ? "#3B6D11" : i === pasoAprobacion ? "#fff" : "#aaa", fontSize:12, fontWeight:500 }}>
+                      {i < pasoAprobacion ? "✓" : i + 1}
+                    </div>
+                    <span style={{ fontSize:12, color: i === pasoAprobacion ? "#1a3a5c" : "#aaa", fontWeight: i === pasoAprobacion ? 600 : 400 }}>
+                      {p === "opcion" ? "Opción" : p === "opcionales" ? "Opcionales" : "Confirmar"}
+                    </span>
+                    {i < pasosAprobacion.length - 1 && <div style={{ width:20, height:1, background:"#ddd" }} />}
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setAprobando(false)} style={{ background:"none", border:"none", cursor:"pointer", color:"#aaa", fontSize:18 }}>×</button>
+            </div>
+
+            <div style={{ padding:"20px" }}>
+              {/* Paso: elegir opción */}
+              {pasosAprobacion[pasoAprobacion] === "opcion" && (
+                <div>
+                  <p style={{ fontSize:15, fontWeight:600, marginBottom:4 }}>¿Cuál opción se aprueba?</p>
+                  <p style={{ color:"#888", fontSize:12, marginBottom:16 }}>Selecciona la opción elegida por el cliente.</p>
+                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
+                    {cot.opciones.map(o => {
+                      const tot = calcOpcion(o, cot.descuentoGlobal, cot.descuentoGlobalTipo);
+                      const sel = opElegida === o.id;
+                      return (
+                        <div key={o.id} onClick={() => setOpElegida(o.id)} style={{ border: sel ? "2px solid #0F6E56" : "1px solid #eaecf0", borderRadius:10, padding:"12px 16px", cursor:"pointer", background: sel ? "#f0faf6" : "#fff" }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                              <div style={{ width:18, height:18, borderRadius:"50%", border: sel ? "5px solid #0F6E56" : "1.5px solid #ccc", flexShrink:0 }} />
+                              <span style={{ fontWeight:500, fontSize:13 }}>{o.nombre}</span>
+                            </div>
+                            <span style={{ fontWeight:600, fontSize:14, color:"#0F6E56" }}>{sym(mon)}{fmtN(tot.total)}</span>
+                          </div>
+                          <div style={{ marginTop:6, marginLeft:28 }}>
+                            {(o.productos || []).map((p, i) => <div key={i} style={{ fontSize:11, color:"#888", marginBottom:1 }}>{p.cantidad}x {p.nombre}</div>)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"flex-end" }}>
+                    <button disabled={!opElegida} onClick={() => setPasoAprobacion(p => p + 1)} style={{ ...s.btnPrimary, background:"#0F6E56", opacity: opElegida ? 1 : 0.5 }}>Continuar →</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Paso: productos opcionales */}
+              {pasosAprobacion[pasoAprobacion] === "opcionales" && (() => {
+                const opPaso = cot.opciones.find(o => o.id === opElegida) || cot.opciones[0];
+                return (
+                  <div>
+                    <p style={{ fontSize:15, fontWeight:600, marginBottom:4 }}>Productos opcionales</p>
+                    <p style={{ color:"#888", fontSize:12, marginBottom:16 }}>Selecciona los adicionales que el cliente quiere incluir.</p>
+                    <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+                      {(opPaso?.productosOpcionales || []).map((p, i) => {
+                        const key = p._lid || p.nombre;
+                        const activo = opcionalesElegidos[key];
+                        return (
+                          <div key={i} onClick={() => setOpcionalesElegidos(prev => ({ ...prev, [key]: !prev[key] }))} style={{ border: activo ? "2px solid #0F6E56" : "1px solid #eaecf0", borderRadius:10, padding:"12px 16px", cursor:"pointer", background: activo ? "#f0faf6" : "#fff", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                              <div style={{ width:18, height:18, borderRadius:4, border: activo ? "none" : "1.5px solid #ccc", background: activo ? "#0F6E56" : "transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                                {activo && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                              </div>
+                              <span style={{ fontWeight:500, fontSize:13 }}>{p.nombre}</span>
+                            </div>
+                            <span style={{ fontWeight:500, color:"#0F6E56", fontSize:13 }}>+ {sym(mon)}{fmtN(Number(p.precio || 0))}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display:"flex", justifyContent:"space-between" }}>
+                      <button onClick={() => setPasoAprobacion(p => p - 1)} style={s.btn}>← Atrás</button>
+                      <button onClick={() => setPasoAprobacion(p => p + 1)} style={{ ...s.btnPrimary, background:"#0F6E56" }}>Continuar →</button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Paso: confirmar */}
+              {pasosAprobacion[pasoAprobacion] === "confirmar" && (() => {
+                const opFinal = cot.opciones.find(o => o.id === opElegida) || cot.opciones[0];
+                const totFinal = calcOpcion(opFinal, cot.descuentoGlobal, cot.descuentoGlobalTipo);
+                const extraOpcionales = (opFinal?.productosOpcionales || []).filter(p => opcionalesElegidos[p._lid || p.nombre]).reduce((a, p) => a + Number(p.precio || 0), 0);
+                return (
+                  <div>
+                    <p style={{ fontSize:15, fontWeight:600, marginBottom:4 }}>Confirmar aprobación</p>
+                    <div style={{ background:"#f8f9fb", borderRadius:8, padding:"14px 16px", marginBottom:16, fontSize:13 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                        <span style={{ color:"#888" }}>Opción</span>
+                        <span style={{ fontWeight:600 }}>{opFinal?.nombre}</span>
+                      </div>
+                      {extraOpcionales > 0 && (
+                        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                          <span style={{ color:"#888" }}>Opcionales</span>
+                          <span style={{ fontWeight:500, color:"#0F6E56" }}>+ {sym(mon)}{fmtN(extraOpcionales)}</span>
+                        </div>
+                      )}
+                      <div style={{ borderTop:"1px solid #e0e4ea", paddingTop:8, display:"flex", justifyContent:"space-between" }}>
+                        <span style={{ fontWeight:700, color:"var(--eco-primary,#1a3a5c)" }}>Total</span>
+                        <span style={{ fontWeight:700, fontSize:16, color:"var(--eco-primary,#1a3a5c)" }}>{sym(mon)}{fmtN(totFinal.total + extraOpcionales)}</span>
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:10 }}>
+                      <button onClick={() => setPasoAprobacion(p => p - 1)} style={{ ...s.btn, flex:1 }}>← Atrás</button>
+                      <button onClick={confirmarAprobacion} style={{ ...s.btnPrimary, flex:2, background:"#0F6E56" }}>✓ Aprobar cotización</button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showLeads && leadsContacto.length > 0 && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", backdropFilter:"blur(3px)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={e => e.target === e.currentTarget && setShowLeads(false)}>
+          <div style={{ background:"#fff", borderRadius:14, width:"90%", maxWidth:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)", overflow:"hidden" }}>
+            <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0f2f5", display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:22 }}>📋</span>
+              <div>
+                <div style={{ fontWeight:700, fontSize:15 }}>Seleccionar lead</div>
+                <div style={{ fontSize:12, color:"#888" }}>Leads activos de {cot.clienteNombre}</div>
+              </div>
+            </div>
+            <div style={{ padding:"10px 20px", maxHeight:300, overflowY:"auto" }}>
+              {leadsContacto.map(lead => (
+                <div key={lead.id} onClick={() => selLead(lead)}
+                  style={{ padding:"12px 14px", cursor:"pointer", borderRadius:10, border:"1px solid #eaecf0", marginBottom:8, background:"#fafbfd" }}
+                  onMouseEnter={e => e.currentTarget.style.background="#EEF3FA"} onMouseLeave={e => e.currentTarget.style.background="#fafbfd"}>
+                  <div style={{ fontWeight:600, fontSize:13, color:"#1a1a1a", marginBottom:4 }}>{lead.nombre || "Lead sin nombre"}</div>
+                  <div style={{ display:"flex", gap:8, fontSize:11, color:"#888" }}>
+                    {lead.etapa && <span style={{ padding:"1px 8px", borderRadius:12, background:"#E6F1FB", color:"#185FA5", fontWeight:500 }}>{lead.etapa}</span>}
+                    {lead.prioridad && <span>Prioridad: {lead.prioridad}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding:"14px 20px", borderTop:"1px solid #f0f2f5", display:"flex", justifyContent:"flex-end" }}>
+              <button onClick={() => setShowLeads(false)} style={{ padding:"8px 16px", border:"1px solid #dde3ed", borderRadius:8, fontSize:12, cursor:"pointer", background:"#f5f5f5", fontFamily:"inherit" }}>Continuar sin lead</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmarMoneda && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", backdropFilter:"blur(3px)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={e => e.target === e.currentTarget && setConfirmarMoneda(null)}>
+          <div style={{ background:"#fff", borderRadius:14, width:"90%", maxWidth:400, boxShadow:"0 20px 60px rgba(0,0,0,.2)", overflow:"hidden" }}>
+            <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0f2f5", display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:22 }}>💱</span>
+              <span style={{ fontWeight:700, fontSize:15 }}>Cambiar moneda</span>
+            </div>
+            <div style={{ padding:"18px 20px", fontSize:13, color:"#555", lineHeight:1.6 }}>
+              <p style={{ margin:"0 0 10px" }}>Todos los precios de la cotización se convertirán de <b>{mon}</b> a <b>{confirmarMoneda}</b>.</p>
+              <p style={{ margin:"0 0 10px" }}>
+                Tasa a usar: <b>₡{(confirmarMoneda === "CRC" ? tasaVenta : tasaCompra).toFixed(2)}</b>
+                {" "}({confirmarMoneda === "CRC" ? "venta" : "compra"})
+              </p>
+              <p style={{ margin:0, fontSize:12, color:"#999" }}>Esta acción modificará los precios de todos los productos.</p>
+            </div>
+            <div style={{ padding:"14px 20px", borderTop:"1px solid #f0f2f5", display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={() => setConfirmarMoneda(null)} style={{ padding:"8px 16px", border:"1px solid #dde3ed", borderRadius:8, fontSize:12, cursor:"pointer", background:"#f5f5f5", fontFamily:"inherit" }}>Cancelar</button>
+              <button onClick={ejecutarCambioMoneda} style={{ padding:"8px 20px", border:"none", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer", background:"var(--eco-primary,#1a3a5c)", color:"#fff", fontFamily:"inherit" }}>Sí, convertir</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModalPlantillas && (
         <ModalPlantillas plantillas={plantillasObs}
@@ -357,13 +748,42 @@ export default function CotizacionForm() {
           <span style={{ fontSize:15, fontWeight:600, color:"var(--eco-primary,#1a3a5c)" }}>{cot.numero}</span>
           <span style={{ display:"inline-flex", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600, background:ec.bg, color:ec.color }}>{cot.estado}</span>
           {guardando && <span style={{ fontSize:11, color:"#bbb" }}>Guardando...</span>}
+          {hayCambios && <span style={{ fontSize:11, color:"#E65100", fontWeight:600 }}>● Sin guardar</span>}
         </div>
         <div style={{ display:"flex", gap:8 }}>
+          {hayCambios && (
+            <>
+              <button style={{ ...s.btn, color:"#888" }} onClick={cancelarCambios}>Cancelar</button>
+              <button style={{ ...s.btnPrimary, background:"#0F6E56" }} onClick={guardarEnFirestore} disabled={guardando}>
+                {guardando ? "Guardando..." : "Guardar cambios"}
+              </button>
+            </>
+          )}
           <button style={s.btn} onClick={() => window.open(`/cotizacion/${id}`, "_blank")}>Vista previa</button>
           <button style={s.btn} onClick={copiarEnlace}>{copiado ? "¡Copiado!" : "Copiar enlace"}</button>
           {cot.estado === "Borrador" && (
             <button style={s.btnPrimary} onClick={marcarEnviada} disabled={enviando}>
               {enviando ? "Enviando..." : "Marcar enviada + copiar enlace"}
+            </button>
+          )}
+          {cot.estado !== "Aceptada" && cot.estado !== "Rechazada" && cot.estado !== "Facturada" && (
+            <button style={{ ...s.btnPrimary, background:"#0F6E56" }} onClick={iniciarAprobacion}>
+              ✓ Aprobar cotización
+            </button>
+          )}
+          {cot.estado === "Aceptada" && (
+            <>
+              <button style={{ ...s.btn, color:"#854F0B", borderColor:"#EDD98A", background:"#FFFBF0" }} onClick={devolverBorrador}>
+                ↩ Devolver a borrador
+              </button>
+              <button style={{ ...s.btnPrimary, background:"#185FA5" }} onClick={pasarAFactura}>
+                📄 Pasar a factura
+              </button>
+            </>
+          )}
+          {cot.estado === "Facturada" && cot.facturaId && (
+            <button style={{ ...s.btnPrimary, background:"#185FA5" }} onClick={() => navigate(`/facturacion/${cot.facturaId}`)}>
+              📄 Ver factura
             </button>
           )}
         </div>
@@ -380,7 +800,7 @@ export default function CotizacionForm() {
             </div>
           </div>
         )}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:12 }}>
           <div style={{ position:"relative" }}>
             <label style={s.lbl}>Contacto</label>
             <input style={s.inp} value={busqContacto || cot.clienteNombre}
@@ -396,6 +816,27 @@ export default function CotizacionForm() {
                 ))}
                 {contactosFiltrados.length === 0 && <div style={{ padding:"10px 12px", color:"#999", fontSize:12 }}>Sin resultados</div>}
               </div>
+            )}
+          </div>
+          <div>
+            <label style={s.lbl}>Lead vinculado</label>
+            {cot.leadId ? (
+              <div style={{ background:"#EAF3DE", borderRadius:7, padding:"7px 12px", fontSize:12, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <span style={{ fontWeight:500, color:"#3B6D11" }}>{cot.leadNombre || "Lead"}</span>
+                <button onClick={() => { upd("leadId", null); upd("leadNombre", ""); }} style={{ background:"none", border:"none", cursor:"pointer", color:"#888", fontSize:14 }}>×</button>
+              </div>
+            ) : (
+              <button onClick={async () => {
+                if (!cot.clienteId) return;
+                try {
+                  const snap = await getDocs(query(collection(db, 'leads'), where('contactoId', '==', cot.clienteId)));
+                  const leads = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(l => l.estado !== 'perdido');
+                  setLeadsContacto(leads);
+                  if (leads.length > 0) setShowLeads(true);
+                } catch {}
+              }} disabled={!cot.clienteId} style={{ ...s.inp, cursor: cot.clienteId ? "pointer" : "not-allowed", color:"#888", textAlign:"left", background: cot.clienteId ? "#fff" : "#f5f5f5" }}>
+                {cot.clienteId ? "Seleccionar lead..." : "Primero elige contacto"}
+              </button>
             )}
           </div>
           <div>
@@ -419,26 +860,22 @@ export default function CotizacionForm() {
         <div style={s.grid4}>
           <div>
             <label style={s.lbl}>Moneda</label>
-            <select style={s.inp} value={mon} onChange={e => upd("moneda", e.target.value)}>
+            <select style={s.inp} value={mon} onChange={e => cambiarMoneda(e.target.value)}>
               <option value="USD">USD — Dólar</option>
               <option value="CRC">CRC — Colón</option>
             </select>
           </div>
           <div>
-            <label style={s.lbl}>Tasa CRC/USD</label>
-            <input style={{ ...s.inp, width:90 }} value={cot.tasa} onChange={e => upd("tasa", e.target.value)} />
-          </div>
-          <div>
             <label style={s.lbl}>Fecha emisión</label>
-            <input style={s.inp} type="date" value={cot.fechaEmision} onChange={e => upd("fechaEmision", e.target.value)} />
+            <DateInput value={cot.fechaEmision} onChange={e => upd("fechaEmision", e.target.value)} />
           </div>
           <div>
             <label style={s.lbl}>Vencimiento</label>
-            <input style={s.inp} type="date" value={cot.fechaVencimiento} onChange={e => upd("fechaVencimiento", e.target.value)} />
+            <DateInput value={cot.fechaVencimiento} onChange={e => upd("fechaVencimiento", e.target.value)} />
           </div>
         </div>
-        <div style={{ marginTop:10, padding:"7px 12px", borderRadius:7, background:"#E6F1FB", color:"#185FA5", fontSize:12 }}>
-          Cotización en {mon} — equivalente aprox. en {monContraria} (tasa ₡{tasa.toFixed(2)}).
+        <div style={{ marginTop:10, padding:"7px 12px", borderRadius:7, background:"#E6F1FB", color:"#185FA5", fontSize:12, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span>Cotización en {mon} — Venta: ₡{tasaVenta.toFixed(2)} · Compra: ₡{tasaCompra.toFixed(2)} — {mon === "CRC" ? "Usa tasa venta" : "Usa tasa compra"}</span>
         </div>
       </div>
 
@@ -474,7 +911,6 @@ export default function CotizacionForm() {
             {showCols && (
               <div style={{ position:"absolute", right:0, top:"110%", background:"#fff", border:"0.5px solid rgba(0,0,0,.12)", borderRadius:10, zIndex:30, minWidth:210, padding:"8px 0", boxShadow:"0 8px 24px rgba(0,0,0,.1)" }}>
                 {[
-                  { key:"costo",    lbl:"Costo interno" },
                   { key:"margen",   lbl:"Margen $" },
                   { key:"margenp",  lbl:"Margen %" },
                   { key:"iva",      lbl:"IVA por línea" },
@@ -497,15 +933,25 @@ export default function CotizacionForm() {
         {opActiva && (<>
 
           {/* ── Tabla de productos incluidos ── */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={e => {
+            const { active, over } = e;
+            if (active && over && active.id !== over.id) {
+              const prods = opActiva.productos || [];
+              const oldIdx = prods.findIndex(p => p._lid === active.id);
+              const newIdx = prods.findIndex(p => p._lid === over.id);
+              if (oldIdx !== -1 && newIdx !== -1) reorderLineas(opActiva.id, oldIdx, newIdx);
+            }
+          }}>
           <div style={{ borderRadius:8, overflow:"hidden", border:"1px solid #eaecf2" }}>
             <table style={{ width:"100%", borderCollapse:"collapse" }}>
               <thead>
                 <tr>
+                  <th style={{ ...s.th, width:28 }}></th>
                   <th style={{ ...s.th, width:36, paddingLeft:12 }}></th>
                   <th style={s.th}>Producto / Descripción</th>
                   <th style={{ ...s.th, textAlign:"center", width:70 }}>Cant.</th>
-                  {cols.costo   && <th style={{ ...s.th, color:"#185FA5" }}>Costo</th>}
-                  <th style={s.th}>Precio {mon}</th>
+                  <th style={{ ...s.th, color:"#185FA5" }}>Precio costo</th>
+                  <th style={s.th}>Precio venta</th>
                   {cols.margen  && <th style={{ ...s.th, color:"#3B6D11" }}>Margen $</th>}
                   {cols.margenp && <th style={{ ...s.th, color:"#3B6D11" }}>Margen %</th>}
                   <th style={s.th}>Desc.</th>
@@ -514,24 +960,21 @@ export default function CotizacionForm() {
                   <th style={{ ...s.th, width:36 }}></th>
                 </tr>
               </thead>
+              <SortableContext items={(opActiva.productos || []).map(p => p._lid)} strategy={verticalListSortingStrategy}>
               <tbody>
                 {(opActiva.productos || []).length === 0 ? (
                   <tr>
-                    <td colSpan={12} style={{ padding:"32px 16px", textAlign:"center", color:"#c0c4cc", fontSize:12, background:"#fafbfc" }}>
+                    <td colSpan={13} style={{ padding:"32px 16px", textAlign:"center", color:"#c0c4cc", fontSize:12, background:"#fafbfc" }}>
                       Sin productos — buscá en el catálogo debajo para agregar
                     </td>
                   </tr>
                 ) : (opActiva.productos || []).map((p, idx) => {
                   const calc = calcLinea(p);
-                  const precioUSD = mon === "CRC" ? Number(p.precio || 0) / tasa : Number(p.precio || 0);
-                  const costoUSD  = Number(p.costo || 0);
-                  const margenAbs = precioUSD - costoUSD;
-                  const margenPct = precioUSD > 0 ? Math.round((margenAbs / precioUSD) * 100) : 0;
-                  const costoMon  = mon === "CRC" ? costoUSD * tasa : costoUSD;
-                  const totalMon  = mon === "CRC" ? calc.total * tasa : calc.total;
+                  const margenAbs = Number(p.precio || 0) - Number(p.costo || 0);
+                  const margenPct = Number(p.precio || 0) > 0 ? Math.round((margenAbs / Number(p.precio || 0)) * 100) : 0;
                   const ivaPct    = p.ivaPct ?? 13;
                   return (
-                    <tr key={p._lid} style={{ background: idx % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                    <SortableRow key={p._lid} id={p._lid}>
                       <td style={{ ...s.td, textAlign:"center", paddingLeft:12 }}>
                         <input type="checkbox" defaultChecked style={{ width:13, height:13, accentColor:"var(--eco-primary,#1a3a5c)", cursor:"pointer" }} />
                       </td>
@@ -542,7 +985,7 @@ export default function CotizacionForm() {
                       <td style={{ ...s.td, textAlign:"center" }}>
                         <input style={{ ...s.miniInp, width:52, textAlign:"center" }} value={p.cantidad} onChange={e => updLinea(opActiva.id, p._lid, "cantidad", e.target.value)} />
                       </td>
-                      {cols.costo   && <td style={{ ...s.td, color:"#bbb", fontSize:12 }}>{sym(mon)}{fmtN(costoMon)}</td>}
+                      <td style={{ ...s.td, color:"#888", fontSize:12 }}>{sym(mon)}{fmtN(Number(p.costo || 0))}</td>
                       <td style={s.td}>
                         <input style={{ ...s.miniInp, width:84 }} value={p.precio} onChange={e => updLinea(opActiva.id, p._lid, "precio", e.target.value)} />
                       </td>
@@ -566,19 +1009,21 @@ export default function CotizacionForm() {
                           </select>
                         </td>
                       )}
-                      {cols.totcon && <td style={{ ...s.td, textAlign:"right", paddingRight:14, fontWeight:700, color:"var(--eco-primary,#1a3a5c)" }}>{sym(mon)}{fmtN(totalMon)}</td>}
+                      {cols.totcon && <td style={{ ...s.td, textAlign:"right", paddingRight:14, fontWeight:700, color:"var(--eco-primary,#1a3a5c)" }}>{sym(mon)}{fmtN(calc.total)}</td>}
                       <td style={{ ...s.td, textAlign:"center" }}>
                         <button style={{ background:"none", border:"none", cursor:"pointer", color:"#ddd", fontSize:16, lineHeight:1, padding:"2px 4px", borderRadius:4 }}
                           onMouseEnter={e => e.currentTarget.style.color="#E24B4A"}
                           onMouseLeave={e => e.currentTarget.style.color="#ddd"}
                           onClick={() => elimLinea(opActiva.id, p._lid)}>✕</button>
                       </td>
-                    </tr>
+                    </SortableRow>
                   );
                 })}
               </tbody>
+              </SortableContext>
             </table>
           </div>
+          </DndContext>
 
           {/* Buscador productos */}
           <div style={{ display:"flex", gap:8, alignItems:"center", marginTop:10, marginBottom:16, flexWrap:"wrap" }}>
@@ -656,7 +1101,7 @@ export default function CotizacionForm() {
             ) : (
               <div>
                 {opActiva.productosOpcionales.map((p, i) => {
-                  const precioMon = mon === "CRC" ? Number(p.precio) * tasa : Number(p.precio);
+                  const precioMon = Number(p.precio);
                   return (
                     <div key={p._lid || i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 16px", borderBottom: i < opActiva.productosOpcionales.length - 1 ? "0.5px solid #EDD98A" : "none", background: i % 2 === 0 ? "#FFFDF5" : "#FFFBEA" }}>
                       <label style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer", flexShrink:0, minWidth:100 }}>
@@ -751,9 +1196,10 @@ export default function CotizacionForm() {
             </div>
 
             <p style={{ fontSize:12, fontWeight:500, marginBottom:6, marginTop:14, color:"#444" }}>Términos y condiciones</p>
-            <textarea style={{ ...s.inp, resize:"vertical", fontSize:12 }} rows={4}
+            <textarea style={{ ...s.inp, resize:"vertical", fontSize:12, minHeight:60 }}
+              rows={Math.max(4, ((cot.terminos !== undefined ? cot.terminos : (plantillaConfig?.terminosCotizacion || plantillaConfig?.config?.textoTerminos || "")) || "").split('\n').length + 1)}
               placeholder="Términos específicos para esta cotización..."
-              value={cot.terminos !== undefined ? cot.terminos : (plantillaConfig?.config?.textoTerminos || "")}
+              value={cot.terminos !== undefined ? cot.terminos : (plantillaConfig?.terminosCotizacion || plantillaConfig?.config?.textoTerminos || "")}
               onChange={e => upd("terminos", e.target.value)} />
 
             {portadas.length > 0 && (
@@ -778,8 +1224,14 @@ export default function CotizacionForm() {
               <div style={{ fontSize:10, fontWeight:700, color:"#bbb", textTransform:"uppercase", letterSpacing:".6px", marginBottom:14 }}>Resumen financiero</div>
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8, fontSize:13 }}>
                 <span style={{ color:"#888" }}>Subtotal</span>
-                <span style={{ fontWeight:500 }}>{sym(mon)}{fmtN(mon==="CRC" ? totales.subtotal*tasa : totales.subtotal)}</span>
+                <span style={{ fontWeight:500 }}>{sym(mon)}{fmtN(totales.subtotal)}</span>
               </div>
+              {totales.descLineas > 0 && (
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8, fontSize:13 }}>
+                  <span style={{ color:"#E24B4A" }}>Desc. por línea</span>
+                  <span style={{ color:"#E24B4A" }}>− {sym(mon)}{fmtN(totales.descLineas)}</span>
+                </div>
+              )}
               <div style={{ marginBottom:10 }}>
                 <div style={{ fontSize:11, color:"#999", marginBottom:5 }}>Descuento global</div>
                 <div style={{ display:"flex", gap:6 }}>
@@ -788,24 +1240,24 @@ export default function CotizacionForm() {
                     <option>%</option><option>$</option>
                   </select>
                 </div>
-                {totales.descG > 0 && <p style={{ fontSize:11, color:"#E24B4A", marginTop:4 }}>− {sym(mon)}{fmtN(mon==="CRC"?totales.descG*tasa:totales.descG)}</p>}
+                {totales.descG > 0 && <p style={{ fontSize:11, color:"#E24B4A", marginTop:4 }}>− {sym(mon)}{fmtN(totales.descG)}</p>}
               </div>
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8, fontSize:13 }}>
                 <span style={{ color:"#888" }}>IVA</span>
-                <span>{sym(mon)}{fmtN(mon==="CRC"?totales.iva*tasa:totales.iva)}</span>
+                <span>{sym(mon)}{fmtN(totales.iva)}</span>
               </div>
               <div style={{ borderTop:"1.5px solid #e0e4ea", paddingTop:12 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", fontWeight:700, fontSize:16, color:"var(--eco-primary,#1a3a5c)" }}>
                   <span>Total {mon}</span>
-                  <span>{sym(mon)}{fmtN(mon==="CRC"?totales.total*tasa:totales.total)}</span>
+                  <span>{sym(mon)}{fmtN(totales.total)}</span>
                 </div>
               </div>
               <div style={{ marginTop:12, border:"0.5px dashed rgba(0,0,0,.12)", borderRadius:8, padding:"8px 10px", background:"#fff" }}>
                 <p style={{ fontSize:10, fontWeight:500, color:"#bbb", textTransform:"uppercase", letterSpacing:".5px", marginBottom:4 }}>Equiv. {monContraria}</p>
                 <p style={{ fontSize:14, fontWeight:600, color:"#555" }}>
-                  {mon==="USD" ? `₡${Math.round(totales.total*tasa).toLocaleString("es-CR")}` : `$${fmtN(totales.total/tasa)}`}
+                  {mon==="USD" ? `₡${Math.round(totales.total * tasaVenta).toLocaleString("es-CR")}` : `$${fmtN(totales.total / tasaCompra)}`}
                 </p>
-                <p style={{ fontSize:10, color:"#bbb", marginTop:2 }}>Tasa ₡{tasa.toFixed(2)} / USD</p>
+                <p style={{ fontSize:10, color:"#bbb", marginTop:2 }}>Venta: ₡{tasaVenta.toFixed(2)} · Compra: ₡{tasaCompra.toFixed(2)}</p>
               </div>
             </div>
           </div>

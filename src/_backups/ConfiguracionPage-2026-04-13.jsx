@@ -29,8 +29,6 @@ const SECCIONES = [
   { id: 'catalogos',  label: 'Catálogos' },
   { id: 'cuentas',    label: 'Cuentas' },
   { id: 'proveedores', label: 'Proveedores' },
-  { id: 'empleados',   label: '👷 Empleados' },
-  { id: 'operaciones', label: '🛠️ Operaciones' },
   { id: 'bot',        label: '🤖 Bot de Ayuda' },
   { id: 'devtools',   label: 'Dev Tools' },
 ]
@@ -78,7 +76,7 @@ function SubNav({ grupo, subs, activo, onChange }) {
     <nav style={{ width:160, flexShrink:0, borderRight:'1px solid #d0d8d0', padding:'8px 0', background:'#fafafa' }}>
       <div style={{ fontSize:9, color:'#aaa', textTransform:'uppercase', letterSpacing:'.7px', padding:'8px 14px 4px' }}>{grupo}</div>
       {subs.map(s => (
-        <button key={s.id} onClick={()=>onChange(s.id)} style={{ width:'100%', textAlign:'left', padding:'8px 14px', fontSize:12, color:activo===s.id?'var(--eco-primary)':'#5c6b5c', background:activo===s.id?'var(--eco-primary-light)':'transparent', borderTop:'none', borderRight:'none', borderBottom:'none', borderLeft:`3px solid ${activo===s.id?'var(--eco-primary)':'transparent'}`, cursor:'pointer', fontWeight:activo===s.id?500:400, fontFamily:'inherit' }}>{s.label}</button>
+        <button key={s.id} onClick={()=>onChange(s.id)} style={{ width:'100%', textAlign:'left', padding:'8px 14px', fontSize:12, color:activo===s.id?'var(--eco-primary)':'#5c6b5c', background:activo===s.id?'var(--eco-primary-light)':'transparent', border:'none', borderLeft:`3px solid ${activo===s.id?'var(--eco-primary)':'transparent'}`, cursor:'pointer', fontWeight:activo===s.id?500:400, fontFamily:'inherit' }}>{s.label}</button>
       ))}
     </nav>
   )
@@ -556,34 +554,22 @@ function PaginaRoles() {
   const authCtx=useAuth(); const yo=authCtx.usuario||authCtx.currentUser||null; const miRol=yo?.rol||''
   const esAdmin=miRol==='Super Administrador'||miRol==='Administrador'
   const [roles,setRoles]=useState([]); const [rolActivo,setRolActivo]=useState(null); const [permisos,setPermisos]=useState({}); const [guardando,setGuardando]=useState(false); const [msg,setMsg]=useState('')
-  const [nuevoRol,setNuevoRol]=useState(''); const [editandoNombre,setEditandoNombre]=useState(null); const [nombreEditado,setNombreEditado]=useState('')
   const cargar=async()=>{ const snap=await getDocs(collection(db,'roles')); if(snap.empty){for(const r of ROLES_DEF) await addDoc(collection(db,'roles'),r); const s2=await getDocs(collection(db,'roles')); const d=s2.docs.map(d=>({id:d.id,...d.data()})); setRoles(d); setRolActivo(d[0]); setPermisos(d[0]?.permisos||{}) } else { const d=snap.docs.map(d=>({id:d.id,...d.data()})); setRoles(d); setRolActivo(d[0]); setPermisos(d[0]?.permisos||{}) } }
   useEffect(()=>{ cargar() },[])
   const seleccionar=r=>{ setRolActivo(r); setPermisos(r.permisos||{}); setMsg('') }
   const toggleMod=key=>{ if(!esAdmin) return; setPermisos(p=>({...p,[key]:!p[key]})) }
   const toggleSub=(mk,s)=>{ if(!esAdmin) return; const k=`${mk}_${s}`; setPermisos(p=>({...p,[k]:!p[k]})) }
   const guardar=async()=>{ setGuardando(true); await setDoc(doc(db,'roles',rolActivo.id),{...rolActivo,permisos},{merge:true}); setMsg('✓ Guardado'); setGuardando(false); setTimeout(()=>setMsg(''),2500) }
-  const agregarRol=async()=>{ if(!nuevoRol.trim()) return; await addDoc(collection(db,'roles'),{nombre:nuevoRol.trim(),color:'#888',permisos:{}}); setNuevoRol(''); cargar() }
-  const guardarNombreRol=async(id)=>{ if(!nombreEditado.trim()){setEditandoNombre(null);return}; await setDoc(doc(db,'roles',id),{nombre:nombreEditado.trim()},{merge:true}); setEditandoNombre(null); cargar() }
-  const eliminarRol=async(id)=>{ const r=roles.find(r=>r.id===id); if(r?.nombre==='Administrador'||r?.nombre==='Super Administrador') return; if(!confirm('¿Eliminar rol?')) return; await deleteDoc(doc(db,'roles',id)); cargar() }
   const esRolAdmin=rolActivo?.nombre==='Administrador'||rolActivo?.nombre==='Super Administrador'
   return (
     <div style={{display:'flex',height:'100%'}}>
-      <div style={{width:210,flexShrink:0,borderRight:'1px solid #d0d8d0',padding:'8px 0',background:'#fafafa'}}>
+      <div style={{width:160,flexShrink:0,borderRight:'1px solid #d0d8d0',padding:'8px 0',background:'#fafafa'}}>
         <div style={{fontSize:9,color:'#aaa',textTransform:'uppercase',letterSpacing:'.7px',padding:'8px 14px 4px'}}>Roles</div>
         {roles.map(r=>(
           <div key={r.id} onClick={()=>seleccionar(r)} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 14px',cursor:'pointer',fontSize:12,color:rolActivo?.id===r.id?'var(--eco-primary)':'#1a1a1a',background:rolActivo?.id===r.id?'var(--eco-primary-light)':'transparent',borderLeft:`3px solid ${rolActivo?.id===r.id?'var(--eco-primary)':'transparent'}`}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:r.color||'#888',flexShrink:0}} />{r.nombre}
           </div>
         ))}
-        {esAdmin&&(
-          <div style={{padding:'8px 10px',borderTop:'1px solid #eee',marginTop:6}}>
-            <div style={{display:'flex',gap:4}}>
-              <input value={nuevoRol} onChange={e=>setNuevoRol(e.target.value)} onKeyDown={e=>e.key==='Enter'&&agregarRol()} placeholder="Nuevo rol..." style={{flex:1,border:'1px solid #d0d8d0',borderRadius:4,padding:'4px 8px',fontSize:11,outline:'none',fontFamily:'inherit'}} />
-              <button onClick={agregarRol} style={{padding:'4px 8px',background:'var(--eco-primary)',color:'#fff',border:'none',borderRadius:4,fontSize:10,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>+ Crear</button>
-            </div>
-          </div>
-        )}
       </div>
       <div style={{flex:1,padding:'20px 24px',overflowY:'auto',background:'#f4f6f4'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
@@ -1788,309 +1774,6 @@ function PaginaProveedores() {
   )
 }
 
-// ─── EMPLEADOS ────────────────────────────────────────────────────────────────
-function PaginaEmpleados() {
-  const authCtx = useAuth()
-  const yo = authCtx.usuario || authCtx.currentUser || null
-  const esSuperAdmin = yo?.rol === 'Super Administrador'
-
-  const [empleados, setEmpleados] = useState([])
-  const [cargos, setCargos] = useState([])
-  const [usuarios, setUsuarios] = useState([])
-  const [modal, setModal] = useState(null) // null | 'nuevo' | empleado obj
-  const [form, setForm] = useState({ nombre: '', apellido: '', telefono: '', cedula: '', cargoId: '', cargoNombre: '', usuarioId: '', fechaIngreso: '', activo: true })
-  const [guardando, setGuardando] = useState(false)
-  const [msg, setMsg] = useState('')
-  const [sub, setSub] = useState('lista') // 'lista' | 'cargos'
-  const [nuevoCargo, setNuevoCargo] = useState('')
-
-  useEffect(() => {
-    const u1 = onSnapshot(query(collection(db, 'empleados'), orderBy('nombre')), snap => setEmpleados(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-    const u2 = onSnapshot(query(collection(db, 'catalogo_cargos'), orderBy('orden')), snap => setCargos(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-    getDocs(collection(db, 'usuarios')).then(snap => setUsuarios(snap.docs.map(d => ({ uid: d.id, ...d.data() }))))
-    return () => { u1(); u2() }
-  }, [])
-
-  const abrirNuevo = () => {
-    setForm({ nombre: '', apellido: '', telefono: '', cedula: '', cargoId: '', cargoNombre: '', usuarioId: '', fechaIngreso: '', activo: true, asignableOperaciones: false })
-    setModal('nuevo')
-  }
-
-  const abrirEditar = (emp) => {
-    setForm({ nombre: emp.nombre || '', apellido: emp.apellido || '', telefono: emp.telefono || '', cedula: emp.cedula || '', cargoId: emp.cargoId || '', cargoNombre: emp.cargoNombre || '', usuarioId: emp.usuarioId || '', fechaIngreso: emp.fechaIngreso || '', activo: emp.activo !== false, asignableOperaciones: emp.asignableOperaciones || false })
-    setModal(emp)
-  }
-
-  const guardar = async () => {
-    if (!form.nombre.trim() || !form.apellido.trim()) { alert('Nombre y apellido son obligatorios'); return }
-    setGuardando(true)
-    try {
-      const cargo = cargos.find(c => c.id === form.cargoId)
-      const data = { ...form, cargoNombre: cargo?.nombre || '', actualizadoEn: serverTimestamp() }
-      if (modal === 'nuevo') {
-        await addDoc(collection(db, 'empleados'), { ...data, creadoEn: serverTimestamp() })
-      } else {
-        await updateDoc(doc(db, 'empleados', modal.id), data)
-      }
-      // Si tiene usuario vinculado y se desactivó, desactivar usuario también
-      if (form.usuarioId && !form.activo) {
-        await updateDoc(doc(db, 'usuarios', form.usuarioId), { activo: false }).catch(() => {})
-      }
-      if (form.usuarioId && form.activo) {
-        await updateDoc(doc(db, 'usuarios', form.usuarioId), { activo: true }).catch(() => {})
-      }
-      setModal(null); setMsg('✓ Guardado'); setTimeout(() => setMsg(''), 2500)
-    } catch (e) { alert('Error: ' + e.message) }
-    finally { setGuardando(false) }
-  }
-
-  const toggleActivo = async (emp) => {
-    const nuevoEstado = emp.activo === false ? true : false
-    await updateDoc(doc(db, 'empleados', emp.id), { activo: nuevoEstado })
-    if (emp.usuarioId) {
-      await updateDoc(doc(db, 'usuarios', emp.usuarioId), { activo: nuevoEstado }).catch(() => {})
-    }
-  }
-
-  // Cargos CRUD
-  const agregarCargo = async () => {
-    if (!nuevoCargo.trim()) return
-    await addDoc(collection(db, 'catalogo_cargos'), { nombre: nuevoCargo.trim(), orden: cargos.length, creadoEn: serverTimestamp() })
-    setNuevoCargo('')
-  }
-  const eliminarCargo = async (id) => { if (confirm('¿Eliminar cargo?')) await deleteDoc(doc(db, 'catalogo_cargos', id)) }
-
-  const sty = {
-    inp: { width: '100%', padding: '8px 10px', border: '1px solid #d0d8d0', borderRadius: 7, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' },
-    lbl: { fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 },
-  }
-
-  return (
-    <div style={{ padding: '24px 28px', overflowY: 'auto', flex: 1 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <SubTitle>Empleados</SubTitle>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {msg && <span style={{ fontSize: 12, color: '#3B6D11', fontWeight: 500, alignSelf: 'center' }}>{msg}</span>}
-          <button onClick={() => setSub('lista')} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid', borderColor: sub === 'lista' ? 'var(--eco-primary)' : '#d0d8d0', background: sub === 'lista' ? 'var(--eco-primary)' : '#fff', color: sub === 'lista' ? '#fff' : '#555', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: sub === 'lista' ? 600 : 400 }}>Lista</button>
-          {esSuperAdmin && <button onClick={() => setSub('cargos')} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid', borderColor: sub === 'cargos' ? 'var(--eco-primary)' : '#d0d8d0', background: sub === 'cargos' ? 'var(--eco-primary)' : '#fff', color: sub === 'cargos' ? '#fff' : '#555', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: sub === 'cargos' ? 600 : 400 }}>Cargos</button>}
-        </div>
-      </div>
-
-      {/* ── Catálogo de cargos ── */}
-      {sub === 'cargos' && esSuperAdmin && (
-        <div style={{ background: '#fff', border: '1px solid #e0e8e0', borderRadius: 10, padding: '16px 20px', maxWidth: 400 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Cargos disponibles</div>
-          {cargos.map(c => (
-            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '0.5px solid #f0f2f5' }}>
-              <span style={{ fontSize: 13 }}>{c.nombre}</span>
-              <button onClick={() => eliminarCargo(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 14 }}>×</button>
-            </div>
-          ))}
-          {cargos.length === 0 && <div style={{ fontSize: 12, color: '#bbb', textAlign: 'center', padding: '12px 0' }}>Sin cargos creados</div>}
-          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-            <input value={nuevoCargo} onChange={e => setNuevoCargo(e.target.value)} onKeyDown={e => e.key === 'Enter' && agregarCargo()} placeholder="Nuevo cargo..." style={{ ...sty.inp, flex: 1 }} />
-            <button onClick={agregarCargo} style={{ padding: '8px 14px', background: 'var(--eco-primary)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>+ Crear</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Lista de empleados ── */}
-      {sub === 'lista' && (
-        <>
-          <button onClick={abrirNuevo} style={{ padding: '8px 16px', background: 'var(--eco-primary)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 14 }}>+ Nuevo empleado</button>
-          <div style={{ background: '#fff', border: '1px solid #e0e8e0', borderRadius: 10, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ background: '#f8f9fb' }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase' }}>Nombre</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase' }}>Cargo</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase' }}>Teléfono</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase' }}>Usuario CRM</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'center', fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase' }}>Estado</th>
-                  <th style={{ padding: '8px 12px', width: 60 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {empleados.length === 0 && <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#bbb', fontSize: 12 }}>Sin empleados registrados</td></tr>}
-                {empleados.map(emp => {
-                  const usr = usuarios.find(u => u.uid === emp.usuarioId)
-                  return (
-                    <tr key={emp.id} style={{ borderBottom: '0.5px solid #f0f2f5' }}>
-                      <td style={{ padding: '8px 12px', fontSize: 13, fontWeight: 500 }}>{emp.nombre} {emp.apellido}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 12, color: '#666' }}>{emp.cargoNombre || '—'}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 12, color: '#666' }}>{emp.telefono || '—'}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 12, color: '#888' }}>{usr?.nombre || usr?.email || (emp.usuarioId ? 'Vinculado' : '—')}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                        <button onClick={() => toggleActivo(emp)} style={{ padding: '2px 10px', borderRadius: 12, border: 'none', fontSize: 10, fontWeight: 600, cursor: 'pointer', background: emp.activo !== false ? '#EAF3DE' : '#FCEBEB', color: emp.activo !== false ? '#3B6D11' : '#A32D2D' }}>
-                          {emp.activo !== false ? 'Activo' : 'Inactivo'}
-                        </button>
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                        <button onClick={() => abrirEditar(emp)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888', fontSize: 11 }}>✏️</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {/* ── Modal crear/editar empleado ── */}
-      {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(3px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={e => e.target === e.currentTarget && setModal(null)}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '95%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,.2)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: 15 }}>{modal === 'nuevo' ? 'Nuevo empleado' : 'Editar empleado'}</span>
-              <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#aaa' }}>×</button>
-            </div>
-            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div><label style={sty.lbl}>Nombre *</label><input style={sty.inp} value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre" /></div>
-                <div><label style={sty.lbl}>Apellido *</label><input style={sty.inp} value={form.apellido} onChange={e => setForm({ ...form, apellido: e.target.value })} placeholder="Apellido" /></div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div><label style={sty.lbl}>Teléfono</label><input style={sty.inp} value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} placeholder="8888-8888" /></div>
-                <div><label style={sty.lbl}>Cédula</label><input style={sty.inp} value={form.cedula} onChange={e => setForm({ ...form, cedula: e.target.value })} placeholder="1-1234-5678" /></div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={sty.lbl}>Cargo</label>
-                  <select style={sty.inp} value={form.cargoId} onChange={e => { const c = cargos.find(c => c.id === e.target.value); setForm({ ...form, cargoId: e.target.value, cargoNombre: c?.nombre || '' }) }}>
-                    <option value="">— Seleccionar —</option>
-                    {cargos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
-                </div>
-                <div><label style={sty.lbl}>Fecha de ingreso</label><input type="date" style={sty.inp} value={form.fechaIngreso} onChange={e => setForm({ ...form, fechaIngreso: e.target.value })} /></div>
-              </div>
-              <div>
-                <label style={sty.lbl}>Vincular a usuario CRM</label>
-                <select style={sty.inp} value={form.usuarioId} onChange={e => setForm({ ...form, usuarioId: e.target.value })}>
-                  <option value="">— Sin vincular —</option>
-                  {usuarios.filter(u => !empleados.some(emp => emp.usuarioId === u.uid && emp.id !== modal?.id)).map(u => <option key={u.uid} value={u.uid}>{u.nombre || u.email}</option>)}
-                </select>
-                <p style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>Si se desactiva el empleado, también se desactivará el usuario vinculado.</p>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={form.activo} onChange={e => setForm({ ...form, activo: e.target.checked })} style={{ accentColor: 'var(--eco-primary)', width: 14, height: 14 }} />
-                  Empleado activo
-                </label>
-                <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={form.asignableOperaciones} onChange={e => setForm({ ...form, asignableOperaciones: e.target.checked })} style={{ accentColor: '#854F0B', width: 14, height: 14 }} />
-                  Asignable a operaciones
-                </label>
-              </div>
-            </div>
-            <div style={{ padding: '14px 20px', borderTop: '1px solid #f0f2f5', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setModal(null)} style={{ padding: '8px 16px', border: '1px solid #d0d8d0', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: '#f5f5f5', fontFamily: 'inherit' }}>Cancelar</button>
-              <button onClick={guardar} disabled={guardando} style={{ padding: '8px 20px', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: guardando ? 'not-allowed' : 'pointer', background: guardando ? '#e0e0e0' : 'var(--eco-primary)', color: guardando ? '#aaa' : '#fff', fontFamily: 'inherit' }}>
-                {guardando ? 'Guardando...' : modal === 'nuevo' ? 'Crear empleado' : 'Guardar cambios'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── OPERACIONES ──────────────────────────────────────────────────────────────
-function PaginaOperaciones() {
-  const [columnas, setColumnas] = useState([])
-  const [roles, setRoles] = useState([])
-  const [config, setConfig] = useState({ columnasOperacionesIds: [] })
-  const [guardando, setGuardando] = useState(false)
-  const [msg, setMsg] = useState('')
-
-  useEffect(() => {
-    getDocs(query(collection(db, 'pipeline_columnas'), orderBy('orden'))).then(snap => {
-      setColumnas(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    })
-    getDocs(collection(db, 'roles')).then(snap => {
-      setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    })
-    getDoc(doc(db, 'configuracion', 'operaciones')).then(snap => {
-      if (snap.exists()) {
-        const data = snap.data()
-        const ids = data.columnasOperacionesIds || (data.columnaOperacionesId ? [data.columnaOperacionesId] : [])
-        setConfig({ ...data, columnasOperacionesIds: ids })
-      }
-    })
-  }, [])
-
-  const toggleColumna = (id) => {
-    const ids = config.columnasOperacionesIds || []
-    setConfig({ ...config, columnasOperacionesIds: ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id] })
-  }
-
-  const guardar = async () => {
-    setGuardando(true)
-    try {
-      await setDoc(doc(db, 'configuracion', 'operaciones'), { columnasOperacionesIds: config.columnasOperacionesIds, rolNotificacion: config.rolNotificacion || '' }, { merge: true })
-      setMsg('✓ Guardado')
-      setTimeout(() => setMsg(''), 2500)
-    } catch (e) { setMsg('Error al guardar') }
-    finally { setGuardando(false) }
-  }
-
-  return (
-    <div style={{ padding: '24px 28px', overflowY: 'auto', flex: 1 }}>
-      <SubTitle>Configuración de Operaciones</SubTitle>
-      <div style={{ background: '#fff', border: '1px solid #e0e8e0', borderRadius: 10, padding: '20px 24px', maxWidth: 500 }}>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 8 }}>
-            Columnas del pipeline para operaciones
-          </label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {columnas.map(c => {
-              const sel = (config.columnasOperacionesIds || []).includes(c.id)
-              return (
-                <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, cursor: 'pointer', background: sel ? '#E6F1FB' : '#fafafa', border: `1px solid ${sel ? '#93C5FD' : '#e8e8e8'}`, transition: 'all .1s' }}>
-                  <input type="checkbox" checked={sel} onChange={() => toggleColumna(c.id)} style={{ accentColor: 'var(--eco-primary, #185FA5)', width: 14, height: 14, cursor: 'pointer' }} />
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: '#1a1a1a' }}>{c.nombre}</span>
-                    <span style={{ fontSize: 10, color: '#aaa', marginLeft: 8 }}>orden: {c.orden}</span>
-                  </div>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.color || '#ccc' }} />
-                </label>
-              )
-            })}
-          </div>
-          <p style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>
-            Los leads que estén en cualquiera de estas columnas aparecerán en el módulo de Operaciones.
-          </p>
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 6 }}>
-            Rol que recibe notificaciones de operaciones
-          </label>
-          <select
-            value={config.rolNotificacion || ''}
-            onChange={e => setConfig({ ...config, rolNotificacion: e.target.value })}
-            style={{ width: '100%', padding: '9px 12px', border: '1px solid #d0d8d0', borderRadius: 7, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#fff' }}
-          >
-            <option value="">— Seleccionar rol —</option>
-            {roles.map(r => (
-              <option key={r.id} value={r.nombre}>{r.nombre}</option>
-            ))}
-          </select>
-          <p style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
-            Todos los usuarios con este rol recibirán notificación cuando un lead entre a operaciones.
-          </p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={guardar} disabled={guardando} style={{ padding: '8px 20px', border: 'none', borderRadius: 7, background: 'var(--eco-primary, #1a3a5c)', color: '#fff', fontSize: 13, fontWeight: 500, cursor: guardando ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-            {guardando ? 'Guardando...' : 'Guardar'}
-          </button>
-          {msg && <span style={{ fontSize: 12, color: msg.startsWith('✓') ? '#3B6D11' : '#A32D2D', fontWeight: 500 }}>{msg}</span>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── DEV TOOLS ────────────────────────────────────────────────────────────────
 function PaginaDevTools() {
   const navigate=useNavigate()
@@ -2118,7 +1801,7 @@ export default function ConfiguracionPage() {
       <div style={{width:180,flexShrink:0,background:'#fff',borderRight:'1px solid #d0d8d0',overflowY:'auto',padding:'10px 0'}}>
         <div style={{fontSize:9,fontWeight:700,color:'#aaa',textTransform:'uppercase',letterSpacing:'.8px',padding:'8px 14px 6px'}}>Configuración</div>
         {SECCIONES.map(s=>(
-          <button key={s.id} onClick={()=>s.link?navigate(s.link):cambiarSeccion(s.id)} style={{width:'100%',textAlign:'left',padding:'9px 14px',background:seccion===s.id?'var(--eco-primary-light)':'transparent',borderTop:'none',borderRight:'none',borderBottom:'none',borderLeft:`3px solid ${seccion===s.id?'var(--eco-primary)':'transparent'}`,cursor:'pointer',fontFamily:'inherit',fontSize:12,color:seccion===s.id?'var(--eco-primary)':'#5c6b5c',fontWeight:seccion===s.id?500:400,display:'flex',alignItems:'center',justifyContent:'space-between'}}
+          <button key={s.id} onClick={()=>s.link?navigate(s.link):cambiarSeccion(s.id)} style={{width:'100%',textAlign:'left',padding:'9px 14px',background:seccion===s.id?'var(--eco-primary-light)':'transparent',borderLeft:`3px solid ${seccion===s.id?'var(--eco-primary)':'transparent'}`,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:12,color:seccion===s.id?'var(--eco-primary)':'#5c6b5c',fontWeight:seccion===s.id?500:400,display:'flex',alignItems:'center',justifyContent:'space-between'}}
             onMouseEnter={e=>{if(seccion!==s.id)e.currentTarget.style.background='#f5f7f5'}}
             onMouseLeave={e=>{if(seccion!==s.id)e.currentTarget.style.background='transparent'}}>
             {s.label}
@@ -2135,8 +1818,6 @@ export default function ConfiguracionPage() {
         {seccion==='catalogos'  && <PaginaCatalogos />}
         {seccion==='cuentas'    && <PaginaCuentas />}
         {seccion==='proveedores' && <PaginaProveedores />}
-        {seccion==='empleados'   && <PaginaEmpleados />}
-        {seccion==='operaciones' && <PaginaOperaciones />}
         {seccion==='bot'        && <PaginaBot />}
         {seccion==='devtools'   && <PaginaDevTools />}
       </div>

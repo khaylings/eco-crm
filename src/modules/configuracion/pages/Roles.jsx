@@ -196,6 +196,8 @@ export default function Roles() {
   const [rolActivo, setRolActivo] = useState(null)
   const [permisos, setPermisos]   = useState({})
   const [nuevoRol, setNuevoRol]   = useState('')
+  const [editandoNombre, setEditandoNombre] = useState(null)
+  const [nombreEditado, setNombreEditado]   = useState('')
   const [guardando, setGuardando] = useState(false)
   const [msg, setMsg]             = useState('')
 
@@ -249,6 +251,13 @@ export default function Roles() {
     setNuevoRol(''); cargar()
   }
 
+  const guardarNombre = async (id) => {
+    if (!nombreEditado.trim()) { setEditandoNombre(null); return }
+    await setDoc(doc(db, 'roles', id), { nombre: nombreEditado.trim() }, { merge: true })
+    setEditandoNombre(null)
+    cargar()
+  }
+
   const eliminarRol = async (id) => {
     const rol = roles.find(r => r.id === id)
     if (rol?.nombre === 'Administrador' || rol?.nombre === 'Super Administrador') return
@@ -271,14 +280,33 @@ export default function Roles() {
             background: rolActivo?.id === r.id ? 'var(--eco-primary-light)' : 'transparent',
             borderLeft: `3px solid ${rolActivo?.id === r.id ? 'var(--eco-primary)' : 'transparent'}`,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: r.color || '#888' }} />
-              {r.nombre}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: r.color || '#888', flexShrink: 0 }} />
+              {editandoNombre === r.id ? (
+                <input
+                  value={nombreEditado}
+                  onChange={e => setNombreEditado(e.target.value)}
+                  onBlur={() => guardarNombre(r.id)}
+                  onKeyDown={e => { if (e.key === 'Enter') guardarNombre(r.id); if (e.key === 'Escape') setEditandoNombre(null) }}
+                  autoFocus
+                  onClick={e => e.stopPropagation()}
+                  style={{ border: '1px solid var(--eco-primary)', borderRadius: 4, padding: '2px 6px', fontSize: 12, outline: 'none', width: '100%', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                />
+              ) : (
+                <span
+                  onDoubleClick={e => { e.stopPropagation(); if (usuarioEsAdmin) { setEditandoNombre(r.id); setNombreEditado(r.nombre) } }}
+                  title={usuarioEsAdmin ? 'Doble clic para editar nombre' : ''}
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >{r.nombre}</span>
+              )}
             </div>
-            {r.nombre !== 'Administrador' && r.nombre !== 'Super Administrador' && usuarioEsAdmin && (
-              <button onClick={e => { e.stopPropagation(); eliminarRol(r.id) }} style={{
-                background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 13, padding: 0,
-              }}>×</button>
+            {usuarioEsAdmin && editandoNombre !== r.id && (
+              <div style={{ display: 'flex', gap: 2, flexShrink: 0, marginLeft: 4 }}>
+                <button onClick={e => { e.stopPropagation(); setEditandoNombre(r.id); setNombreEditado(r.nombre) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 11, padding: '0 2px' }} title="Editar nombre">✏️</button>
+                {r.nombre !== 'Administrador' && r.nombre !== 'Super Administrador' && (
+                  <button onClick={e => { e.stopPropagation(); eliminarRol(r.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 13, padding: 0 }}>×</button>
+                )}
+              </div>
             )}
           </div>
         ))}

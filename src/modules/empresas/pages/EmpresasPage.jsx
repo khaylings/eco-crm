@@ -29,10 +29,14 @@ export default function EmpresasPage() {
 
   useEffect(() => { cargar() }, [])
 
-  const filtradas = empresas.filter(e =>
-    e.nombre?.toLowerCase().includes(filtro.toLowerCase()) ||
-    e.sector?.toLowerCase().includes(filtro.toLowerCase())
-  )
+  const filtradas = empresas.filter(e => {
+    const q = filtro.toLowerCase()
+    return (e.nombre || '').toLowerCase().includes(q) ||
+      (e.nombreComercial || '').toLowerCase().includes(q) ||
+      (e.razonSocial || '').toLowerCase().includes(q) ||
+      (e.sector || '').toLowerCase().includes(q) ||
+      (e.ruc || '').includes(q)
+  })
 
   const s = estilos
 

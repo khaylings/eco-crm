@@ -5,13 +5,20 @@
 import { iniciales, colorFromString } from './helpers'
 import { ETAPA_CONFIG } from './constants'
 
+// Genera color de fondo claro a partir del color base
+const bgFromColor = (color) => color ? color + '18' : '#eee'
+
 export const sel = {
   width: '100%', padding: '6px 9px', border: '1px solid #dde3ed',
   borderRadius: '8px', fontSize: '13px', color: '#1a1a1a', background: '#fff', fontFamily: 'inherit',
 }
 
-export function EtapaBadge({ etapa, small }) {
-  const cfg = ETAPA_CONFIG[etapa] || { label: etapa, color: '#888', bg: '#eee' }
+export function EtapaBadge({ etapa, small, columnas }) {
+  // Buscar primero en columnas dinámicas (por ID), luego en config hardcodeada, luego fallback
+  const colDyn = columnas?.find(c => c.id === etapa)
+  const cfg = colDyn
+    ? { label: colDyn.nombre, color: colDyn.color, bg: bgFromColor(colDyn.color) }
+    : ETAPA_CONFIG[etapa] || { label: etapa, color: '#888', bg: '#eee' }
   return (
     <span style={{
       display: 'inline-block', padding: small ? '1px 6px' : '2px 10px',

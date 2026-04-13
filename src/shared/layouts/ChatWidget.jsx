@@ -16,6 +16,7 @@ import {
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { TabSolicitudes } from '../../modules/solicitudes/pages/SolicitudesPage'
 
 const WASENDER_URL   = import.meta.env.VITE_WASENDER_API_URL || 'https://wasenderapi.com/api'
 const WASENDER_TOKEN = import.meta.env.VITE_WASENDER_SESSION_TOKEN
@@ -26,7 +27,7 @@ function formatHora(ts) {
   const hoy = new Date()
   if (d.toDateString() === hoy.toDateString())
     return d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
-  return d.toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit' })
+  return d.toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 function iniciales(nombre = '') {
@@ -218,7 +219,8 @@ export default function ChatWidget({ onSonido }) {
   const [conversaciones, setConversaciones] = useState([])
   const [grupos,         setGrupos]         = useState([])
   const [usuarios,       setUsuarios]       = useState([])
-  const [tab,            setTab]            = useState('todos') // 'todos' | 'chats' | 'internos'
+  const [tab,            setTab]            = useState('todos') // 'todos' | 'chats' | 'internos' | 'solicitudes'
+  const [pendientesSolicitudes, setPendientesSolicitudes] = useState(0)
   const [ventanas,       setVentanas]       = useState([]) // chats abiertos como ventana
   const [busqueda,       setBusqueda]       = useState('')
   const panelRef = useRef()
@@ -374,18 +376,21 @@ export default function ChatWidget({ onSonido }) {
             <div style={{ padding: '12px 14px', borderBottom: '0.5px solid #e8ecf0', background: '#fafafa', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a1a' }}>Mensajes</span>
-                <button onClick={() => navigate('/chats')}
-                  style={{ fontSize: 11, color: 'var(--eco-primary, #185FA5)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500 }}>
-                  Ver todos →
-                </button>
+                {tab !== 'solicitudes' && (
+                  <button onClick={() => navigate('/chats')}
+                    style={{ fontSize: 11, color: 'var(--eco-primary, #185FA5)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500 }}>
+                    Ver todos →
+                  </button>
+                )}
               </div>
 
               {/* Tabs */}
               <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                 {[
-                  { key: 'todos',    label: 'Todos',    badge: totalNoLeidos },
-                  { key: 'chats',    label: '📱 WA',    badge: noLeidosWA },
-                  { key: 'internos', label: '💬 Internos', badge: noLeidosInt },
+                  { key: 'todos',        label: 'Todos',       badge: totalNoLeidos },
+                  { key: 'chats',        label: '📱 WA',       badge: noLeidosWA },
+                  { key: 'internos',     label: '💬 Internos', badge: noLeidosInt },
+                  { key: 'solicitudes',  label: '🐛 Soporte',  badge: pendientesSolicitudes },
                 ].map(t => (
                   <button key={t.key} onClick={() => setTab(t.key)}
                     style={{ flex: 1, padding: '5px 4px', border: 'none', fontSize: 11, fontWeight: 600, borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', position: 'relative',
@@ -398,60 +403,70 @@ export default function ChatWidget({ onSonido }) {
                 ))}
               </div>
 
-              {/* Buscador */}
-              <div style={{ position: 'relative' }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-                  <circle cx="11" cy="11" r="8" stroke="#bbb" strokeWidth="2"/><path d="M21 21l-4.35-4.35" stroke="#bbb" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-                <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar..."
-                  style={{ width: '100%', padding: '6px 10px 6px 26px', border: '0.5px solid #e0e0e0', borderRadius: 8, fontSize: 12, outline: 'none', background: '#f7f8fa', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-              </div>
-            </div>
-
-            {/* Lista de conversaciones */}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {lista.length === 0 && (
-                <div style={{ padding: '30px 20px', textAlign: 'center', color: '#bbb', fontSize: 13 }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
-                  Sin conversaciones
+              {/* Buscador — oculto en tab Solicitudes */}
+              {tab !== 'solicitudes' && (
+                <div style={{ position: 'relative' }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                    <circle cx="11" cy="11" r="8" stroke="#bbb" strokeWidth="2"/><path d="M21 21l-4.35-4.35" stroke="#bbb" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                  <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar..."
+                    style={{ width: '100%', padding: '6px 10px 6px 26px', border: '0.5px solid #e0e0e0', borderRadius: 8, fontSize: 12, outline: 'none', background: '#f7f8fa', fontFamily: 'inherit', boxSizing: 'border-box' }} />
                 </div>
               )}
-              {lista.map(item => {
-                const esInt    = item._tipo === 'interno'
-                const noLeidos = noLeidosItem(item)
-                const ts       = esInt ? item.ultimoMensajeEn : item.timestamp
-                return (
-                  <div key={`${item._tipo}-${item.id}`}
-                    onClick={() => abrirVentana(item)}
-                    style={{ display: 'flex', gap: 10, padding: '10px 14px', cursor: 'pointer', borderBottom: '0.5px solid #f5f6f8', alignItems: 'center', background: '#fff', transition: 'background .1s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
-                    onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                    <Avatar nombre={item.nombre} size={36} interno={esInt} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <span style={{ fontWeight: noLeidos > 0 ? 700 : 600, fontSize: 13, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{item.nombre}</span>
-                        <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0, marginLeft: 4 }}>{formatHora(ts)}</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: noLeidos > 0 ? '#555' : '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: noLeidos > 0 ? 500 : 400 }}>
-                        {esInt && <span style={{ color: '#0F6E56', marginRight: 3 }}>💬</span>}
-                        {!esInt && item.ultimoMensaje && (
-                          <span style={{ fontSize: 11, marginRight: 2, color: '#aaa' }}>✓✓</span>
-                        )}
-                        {item.ultimoMensaje || '...'}
-                      </div>
-                    </div>
-                    {noLeidos > 0 && (
-                      <span style={{ background: esInt ? '#0F6E56' : 'var(--eco-primary, #185FA5)', color: '#fff', fontSize: 10, padding: '1px 6px', borderRadius: 10, fontWeight: 700, flexShrink: 0 }}>{noLeidos}</span>
-                    )}
-                  </div>
-                )
-              })}
             </div>
 
-            {/* Footer */}
-            <div style={{ padding: '10px 14px', borderTop: '0.5px solid #e8ecf0', background: '#fafafa', flexShrink: 0, textAlign: 'center' }}>
-              <span style={{ fontSize: 11, color: '#bbb' }}>{lista.length} conversación{lista.length !== 1 ? 'es' : ''}</span>
-            </div>
+            {/* Contenido — conversaciones o tab Solicitudes */}
+            {tab === 'solicitudes' ? (
+              <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <TabSolicitudes onPendientesChange={setPendientesSolicitudes} />
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                {lista.length === 0 && (
+                  <div style={{ padding: '30px 20px', textAlign: 'center', color: '#bbb', fontSize: 13 }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
+                    Sin conversaciones
+                  </div>
+                )}
+                {lista.map(item => {
+                  const esInt    = item._tipo === 'interno'
+                  const noLeidos = noLeidosItem(item)
+                  const ts       = esInt ? item.ultimoMensajeEn : item.timestamp
+                  return (
+                    <div key={`${item._tipo}-${item.id}`}
+                      onClick={() => abrirVentana(item)}
+                      style={{ display: 'flex', gap: 10, padding: '10px 14px', cursor: 'pointer', borderBottom: '0.5px solid #f5f6f8', alignItems: 'center', background: '#fff', transition: 'background .1s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                      onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                      <Avatar nombre={item.nombre} size={36} interno={esInt} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                          <span style={{ fontWeight: noLeidos > 0 ? 700 : 600, fontSize: 13, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{item.nombre}</span>
+                          <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0, marginLeft: 4 }}>{formatHora(ts)}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: noLeidos > 0 ? '#555' : '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: noLeidos > 0 ? 500 : 400 }}>
+                          {esInt && <span style={{ color: '#0F6E56', marginRight: 3 }}>💬</span>}
+                          {!esInt && item.ultimoMensaje && (
+                            <span style={{ fontSize: 11, marginRight: 2, color: '#aaa' }}>✓✓</span>
+                          )}
+                          {item.ultimoMensaje || '...'}
+                        </div>
+                      </div>
+                      {noLeidos > 0 && (
+                        <span style={{ background: esInt ? '#0F6E56' : 'var(--eco-primary, #185FA5)', color: '#fff', fontSize: 10, padding: '1px 6px', borderRadius: 10, fontWeight: 700, flexShrink: 0 }}>{noLeidos}</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Footer — oculto en tab Solicitudes */}
+            {tab !== 'solicitudes' && (
+              <div style={{ padding: '10px 14px', borderTop: '0.5px solid #e8ecf0', background: '#fafafa', flexShrink: 0, textAlign: 'center' }}>
+                <span style={{ fontSize: 11, color: '#bbb' }}>{lista.length} conversación{lista.length !== 1 ? 'es' : ''}</span>
+              </div>
+            )}
           </div>
         )}
 
