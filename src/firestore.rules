@@ -78,9 +78,11 @@ service cloud.firestore {
     }
 
     match /cotizaciones/{docId} {
-      allow read, write: if isAuth();
+      allow read: if true;  // Lectura pública — necesaria para el portal del cliente
+      allow write: if isAuth();
       match /items/{itemId} {
-        allow read, write: if isAuth();
+        allow read: if true;
+        allow write: if isAuth();
       }
     }
 
@@ -115,7 +117,8 @@ service cloud.firestore {
     // Solo admins pueden modificar, todos pueden leer
     // -------------------------------------------------------
     match /configuracion/{docId} {
-      allow read: if isAuth();
+      // empresa y plantilla_cotizacion necesitan lectura pública para el portal del cliente
+      allow read: if true;
       allow write: if isAdmin();
     }
 

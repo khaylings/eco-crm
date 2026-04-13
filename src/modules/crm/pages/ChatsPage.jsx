@@ -453,6 +453,12 @@ export default function ChatsPage() {
     if (!contactoCRM?.id) return
     await updateDoc(doc(db,'contactos',contactoCRM.id), { [campo]: valor })
     setContactoCRM(prev => ({ ...prev, [campo]: valor }))
+    // Si cambia el nombre, actualizar también en la conversación y en chatActivo
+    if (campo === 'nombre' && chatActivo?.id && tipoActivo === 'wa') {
+      await updateDoc(doc(db, 'conversaciones', chatActivo.id), { nombre: valor }).catch(() => {})
+      setChatActivo(prev => ({ ...prev, nombre: valor }))
+      setConversaciones(prev => prev.map(c => c.id === chatActivo.id ? { ...c, nombre: valor } : c))
+    }
   }
 
   async function guardarFacturacionCRM(tipoFact, campoId, valor) {

@@ -31,33 +31,15 @@ import {
 import { db } from '../../../firebase/config'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermisos } from '../../../hooks/usePermisos'
-import ResizableTable from '../../../shared/components/ResizableTable'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtUSD = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtCRC = (n) => '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
 const fmt    = (n, mon = 'USD') => mon === 'USD' ? fmtUSD(n) : fmtCRC(n)
 
-// CxC (me deben CRC) → dividir por tasa venta (más alta)
-// CxP (yo debo CRC) → dividir por tasa compra (más baja)
-// tc puede ser número (legacy) u objeto { venta, compra }
 const toUSD = (monto, moneda, tc) => {
   if (!monto) return 0
-  if (moneda === 'USD') return Number(monto)
-  const tasa = typeof tc === 'object' ? (tc?.venta || tc?.compra || 520) : (tc || 520)
-  return Number(monto) / tasa
-}
-const toUSD_cobrar = (monto, moneda, tc) => {
-  if (!monto) return 0
-  if (moneda === 'USD') return Number(monto)
-  const tasa = typeof tc === 'object' ? (tc?.venta || 520) : (tc || 520)
-  return Number(monto) / tasa
-}
-const toUSD_pagar = (monto, moneda, tc) => {
-  if (!monto) return 0
-  if (moneda === 'USD') return Number(monto)
-  const tasa = typeof tc === 'object' ? (tc?.compra || 520) : (tc || 520)
-  return Number(monto) / tasa
+  return moneda === 'USD' ? Number(monto) : Number(monto) / (tc || 520)
 }
 
 const fmtFecha = (iso) => {
@@ -440,15 +422,15 @@ function GraficoFlujo({ facturas, ordenes, deudas, tc }) {
     // Recopilar todos los movimientos pendientes
     const allMovs = []
     facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').forEach(f => {
-      if (f.fechaVencimiento) allMovs.push({ date: f.fechaVencimiento, usd: toUSD_cobrar(f.saldo ?? 0, f.moneda, tc), type: 'cobrar' })
+      if (f.fechaVencimiento) allMovs.push({ date: f.fechaVencimiento, usd: toUSD(f.saldo ?? 0, f.moneda, tc), type: 'cobrar' })
     })
     ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida').forEach(o => {
       const fecha = o.fechaVencimientoPago || o.fecha
-      if (fecha) allMovs.push({ date: fecha, usd: toUSD_pagar(o.saldo ?? o.total ?? 0, o.moneda, tc), type: 'pagar' })
+      if (fecha) allMovs.push({ date: fecha, usd: toUSD(o.saldo ?? o.total ?? 0, o.moneda, tc), type: 'pagar' })
     })
     deudas.filter(d => d.estado === 'pendiente').forEach(d => {
       const fecha = d.fechaVencimiento || d.fecha
-      if (fecha) allMovs.push({ date: fecha, usd: d.tipo === 'yo_debo' ? toUSD_pagar(d.saldo ?? d.monto ?? 0, d.moneda, tc) : toUSD_cobrar(d.saldo ?? d.monto ?? 0, d.moneda, tc), type: d.tipo === 'yo_debo' ? 'pagar' : 'cobrar' })
+      if (fecha) allMovs.push({ date: fecha, usd: toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), type: d.tipo === 'yo_debo' ? 'pagar' : 'cobrar' })
     })
 
     // Generar labels según periodo
@@ -499,8 +481,8 @@ function GraficoFlujo({ facturas, ordenes, deudas, tc }) {
     })
 
     // Saldo acumulado (disponible actual + cobros - pagos)
-    const cobrado = facturas.reduce((s, f) => s + (f.pagos || []).reduce((ss, p) => ss + toUSD_cobrar(p.monto, f.moneda, tc), 0), 0)
-    const pagado = ordenes.reduce((s, o) => s + (o.pagos || []).reduce((ss, p) => ss + toUSD_pagar(p.monto, o.moneda, tc), 0), 0)
+    const cobrado = facturas.reduce((s, f) => s + (f.pagos || []).reduce((ss, p) => ss + toUSD(p.monto, f.moneda, tc), 0), 0)
+    const pagado = ordenes.reduce((s, o) => s + (o.pagos || []).reduce((ss, p) => ss + toUSD(p.monto, o.moneda, tc), 0), 0)
     const initBal = cobrado - pagado
 
     const balData = []
@@ -654,22 +636,22 @@ function GraficoFlujo({ facturas, ordenes, deudas, tc }) {
 function TabDashboard({ facturas, ordenes, gastos, deudas, tc, setTab }) {
   const cxcPendiente = useMemo(() =>
     facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial')
-      .reduce((s, f) => s + toUSD_cobrar(f.saldo ?? 0, f.moneda, tc), 0)
+      .reduce((s, f) => s + toUSD(f.saldo ?? 0, f.moneda, tc), 0)
   , [facturas, tc])
 
   const cxpPendiente = useMemo(() =>
     ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida')
-      .reduce((s, o) => s + toUSD_pagar(o.saldo ?? o.total ?? 0, o.moneda, tc), 0)
+      .reduce((s, o) => s + toUSD(o.saldo ?? o.total ?? 0, o.moneda, tc), 0)
   , [ordenes, tc])
 
   const pasivos = useMemo(() =>
     deudas.filter(d => d.tipo === 'yo_debo' && d.estado === 'pendiente')
-      .reduce((s, d) => s + toUSD_pagar(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
+      .reduce((s, d) => s + toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
   , [deudas, tc])
 
   const activos = useMemo(() =>
     deudas.filter(d => d.tipo === 'empresa_debe' && d.estado === 'pendiente')
-      .reduce((s, d) => s + toUSD_cobrar(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
+      .reduce((s, d) => s + toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
   , [deudas, tc])
 
   const posicionNeta = cxcPendiente + activos - cxpPendiente - pasivos
@@ -686,7 +668,7 @@ function TabDashboard({ facturas, ordenes, gastos, deudas, tc, setTab }) {
         <p style={{ fontSize: 42, fontWeight: 800, color: posicionNeta >= 0 ? '#86efac' : '#fca5a5', margin: 0, letterSpacing: '-2px', fontFamily: 'monospace' }}>
           {posicionNeta >= 0 ? '+' : ''}{fmtUSD(posicionNeta)}
         </p>
-        <p style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', margin: '10px 0 0' }}>CxC + Activos − CxP − Pasivos · Compra ₡{tc?.compra} · Venta ₡{tc?.venta}</p>
+        <p style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', margin: '10px 0 0' }}>CxC + Activos − CxP − Pasivos · T/C ₡{tc}</p>
       </div>
 
       {/* Cuadrante */}
@@ -765,7 +747,7 @@ function TabEstadoResultados({ facturas, ordenes, gastos, tc }) {
     facturas.forEach(f => {
       ;(f.pagos || []).forEach(p => {
         if (!p.fecha || !filtrarPorPeriodo(p.fecha)) return
-        movs.push({ concepto: `Pago — ${f.clienteNombre || f.numero}`, monto: toUSD_cobrar(p.monto, f.moneda, tc), fecha: p.fecha, ref: f.numero })
+        movs.push({ concepto: `Pago — ${f.clienteNombre || f.numero}`, monto: toUSD(p.monto, f.moneda, tc), fecha: p.fecha, ref: f.numero })
       })
     })
     return movs.sort((a, b) => b.fecha.localeCompare(a.fecha))
@@ -778,13 +760,13 @@ function TabEstadoResultados({ facturas, ordenes, gastos, tc }) {
       const pags = o.pagos || []
       pags.forEach(p => {
         if (!p.fecha || !filtrarPorPeriodo(p.fecha)) return
-        movs.push({ concepto: `Compra — ${o.proveedorNombre || o.numero}`, monto: toUSD_pagar(p.monto, o.moneda, tc), fecha: p.fecha, ref: o.numero })
+        movs.push({ concepto: `Compra — ${o.proveedorNombre || o.numero}`, monto: toUSD(p.monto, o.moneda, tc), fecha: p.fecha, ref: o.numero })
       })
       // Si no tiene pagos detallados pero estado Pagada, usar total
       if (pags.length === 0) {
         const fecha = o.creadoEn?.toDate ? o.creadoEn.toDate().toISOString().substring(0, 10) : null
         if (fecha && filtrarPorPeriodo(fecha)) {
-          movs.push({ concepto: `Compra — ${o.proveedorNombre || o.numero}`, monto: toUSD_pagar(o.total, o.moneda, tc), fecha, ref: o.numero })
+          movs.push({ concepto: `Compra — ${o.proveedorNombre || o.numero}`, monto: toUSD(o.total, o.moneda, tc), fecha, ref: o.numero })
         }
       }
     })
@@ -804,12 +786,12 @@ function TabEstadoResultados({ facturas, ordenes, gastos, tc }) {
       return `${anioSelec}-${m}`
     })
     return meses.map(mes => {
-      const ing = facturas.flatMap(f => (f.pagos || []).filter(p => p.fecha?.startsWith(mes)).map(p => toUSD_cobrar(p.monto, f.moneda, tc))).reduce((s, v) => s + v, 0)
+      const ing = facturas.flatMap(f => (f.pagos || []).filter(p => p.fecha?.startsWith(mes)).map(p => toUSD(p.monto, f.moneda, tc))).reduce((s, v) => s + v, 0)
       const gas = ordenes.filter(o => o.estado === 'Pagada').flatMap(o => {
         const pags = o.pagos || []
-        if (pags.length > 0) return pags.filter(p => p.fecha?.startsWith(mes)).map(p => toUSD_pagar(p.monto, o.moneda, tc))
+        if (pags.length > 0) return pags.filter(p => p.fecha?.startsWith(mes)).map(p => toUSD(p.monto, o.moneda, tc))
         const fecha = o.creadoEn?.toDate ? o.creadoEn.toDate().toISOString().substring(0, 10) : null
-        return (fecha?.startsWith(mes)) ? [toUSD_pagar(o.total, o.moneda, tc)] : []
+        return (fecha?.startsWith(mes)) ? [toUSD(o.total, o.moneda, tc)] : []
       }).reduce((s, v) => s + v, 0)
       const labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
       return { mes, label: labels[parseInt(mes.split('-')[1]) - 1], ingresos: ing, gastos: gas, utilidad: ing - gas }
@@ -960,7 +942,7 @@ function TabBalanceGeneral({ facturas, ordenes, deudas, tc, onActualizarPrecio }
               // Fallback: precioCompra del producto (guardado en CRC) → convertir a USD
               if (prod.precioCompra) {
                 costoUSD = Number(prod.precioCompra) > 1000
-                  ? Number(prod.precioCompra) / (tc?.compra || 520)  // probablemente en CRC
+                  ? Number(prod.precioCompra) / tc  // probablemente en CRC
                   : Number(prod.precioCompra)        // probablemente en USD
               } else if (prod.costo) {
                 costoUSD = Number(prod.costo)
@@ -992,12 +974,12 @@ function TabBalanceGeneral({ facturas, ordenes, deudas, tc, onActualizarPrecio }
   // Activos
   const cxcPendiente = useMemo(() =>
     facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial')
-      .reduce((s, f) => s + toUSD_cobrar(f.saldo ?? 0, f.moneda, tc), 0)
+      .reduce((s, f) => s + toUSD(f.saldo ?? 0, f.moneda, tc), 0)
   , [facturas, tc])
 
   const activosDeudas = useMemo(() =>
     deudas.filter(d => d.tipo === 'empresa_debe' && d.estado === 'pendiente')
-      .reduce((s, d) => s + toUSD_cobrar(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
+      .reduce((s, d) => s + toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
   , [deudas, tc])
 
   const totalActivos = cxcPendiente + valorInventario + activosDeudas
@@ -1005,12 +987,12 @@ function TabBalanceGeneral({ facturas, ordenes, deudas, tc, onActualizarPrecio }
   // Pasivos
   const cxpOrdenes = useMemo(() =>
     ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida')
-      .reduce((s, o) => s + toUSD_pagar(o.saldo ?? o.total ?? 0, o.moneda, tc), 0)
+      .reduce((s, o) => s + toUSD(o.saldo ?? o.total ?? 0, o.moneda, tc), 0)
   , [ordenes, tc])
 
   const pasivosDeudas = useMemo(() =>
     deudas.filter(d => d.tipo === 'yo_debo' && d.estado === 'pendiente')
-      .reduce((s, d) => s + toUSD_pagar(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
+      .reduce((s, d) => s + toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
   , [deudas, tc])
 
   const totalPasivos   = cxpOrdenes + pasivosDeudas
@@ -1105,7 +1087,7 @@ function TabBalanceGeneral({ facturas, ordenes, deudas, tc, onActualizarPrecio }
             <p style={{ fontSize: 28, fontWeight: 800, color: patrimonio >= 0 ? '#86efac' : '#fca5a5', margin: 0, fontFamily: 'monospace', letterSpacing: '-1px' }}>
               {patrimonio >= 0 ? '+' : ''}{fmtUSD(patrimonio)}
             </p>
-            <p style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', margin: '6px 0 0' }}>Activos − Pasivos · Compra ₡{tc?.compra} · Venta ₡{tc?.venta}</p>
+            <p style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', margin: '6px 0 0' }}>Activos − Pasivos · T/C ₡{tc}</p>
           </div>
         </div>
       </div>
@@ -1114,12 +1096,10 @@ function TabBalanceGeneral({ facturas, ordenes, deudas, tc, onActualizarPrecio }
 }
 
 // ─── Tab: CxC ─────────────────────────────────────────────────────────────────
-function TabCxC({ facturas, cuentas, onAbono, navigate, tc }) {
+function TabCxC({ facturas, cuentas, onAbono, navigate }) {
   const [busqueda, setBusqueda] = useState('')
   const [filtro,   setFiltro]   = useState('pendientes')
   const [modalFac, setModalFac] = useState(null)
-  const [cols, setCols] = useState({ montoOrig: true, totalUSD: true, saldoOrig: true, saldoUSD: true, vendedor: false, moneda: true })
-  const [showCols, setShowCols] = useState(false)
 
   const ESTADO_CFG = { 'Sin Pagar': C.red, 'Parcial': C.amber, 'Pagada': C.green, 'Incobrable': C.purple }
 
@@ -1131,100 +1111,61 @@ function TabCxC({ facturas, cuentas, onAbono, navigate, tc }) {
     return true
   }), [facturas, filtro, busqueda])
 
-  const pendientesCxC = useMemo(() => facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial'), [facturas])
-  const saldoCRC = useMemo(() => pendientesCxC.filter(f => f.moneda === 'CRC').reduce((s, f) => s + Number(f.saldo ?? 0), 0), [pendientesCxC])
-  const saldoUSD = useMemo(() => pendientesCxC.filter(f => f.moneda !== 'CRC').reduce((s, f) => s + Number(f.saldo ?? 0), 0), [pendientesCxC])
-  const saldoTotalUSD = useMemo(() => pendientesCxC.reduce((s, f) => s + toUSD_cobrar(f.saldo ?? 0, f.moneda, tc), 0), [pendientesCxC, tc])
+  const totalPendiente = useMemo(() => facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').reduce((s, f) => s + Number(f.saldo ?? 0), 0), [facturas])
   const vencidas = useMemo(() => facturas.filter(f => { const dias = diasRestantes(f.fechaVencimiento); return (f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial') && dias !== null && dias < 0 }), [facturas])
-
-  const COL_OPTS = [
-    { key: 'montoOrig', label: 'Total original' },
-    { key: 'totalUSD', label: 'Total USD' },
-    { key: 'saldoOrig', label: 'Saldo original' },
-    { key: 'saldoUSD', label: 'Saldo USD' },
-    { key: 'vendedor', label: 'Vendedor' },
-    { key: 'moneda', label: 'Moneda' },
-  ]
 
   return (
     <div>
       {modalFac && <ModalAbonoCxC factura={modalFac} cuentas={cuentas} onGuardar={async (f, p) => { await onAbono(f, p); setModalFac(null) }} onCerrar={() => setModalFac(null)} />}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <MetCard label="Por cobrar ₡" valor={fmtCRC(saldoCRC)} palette={C.amber} sub={`${pendientesCxC.filter(f => f.moneda === 'CRC').length} facturas`} />
-        <MetCard label="Por cobrar $" valor={fmtUSD(saldoUSD)} palette={C.blue} sub={`${pendientesCxC.filter(f => f.moneda !== 'CRC').length} facturas`} />
-        <MetCard label="Por cobrar Total" valor={fmtUSD(saldoTotalUSD)} palette={C.green} sub={`${pendientesCxC.length} pendientes · Tasa ₡${tc?.venta || 0}`} />
-        <MetCard label="Vencidas" valor={vencidas.length} palette={C.red} sub={vencidas.length > 0 ? `${fmtUSD(vencidas.reduce((s, f) => s + toUSD_cobrar(f.saldo ?? 0, f.moneda, tc), 0))} en riesgo` : 'Sin vencidas'} />
+        <MetCard label="Por cobrar" valor={fmtUSD(totalPendiente)} palette={C.blue} sub={`${filtradas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').length} facturas pendientes`} />
+        <MetCard label="Vencidas" valor={vencidas.length} palette={C.red} sub={vencidas.length > 0 ? `${fmtUSD(vencidas.reduce((s, f) => s + Number(f.saldo ?? 0), 0))} en riesgo` : 'Sin vencidas'} />
+        <MetCard label="Total facturas" valor={facturas.length} palette={C.gray} />
       </div>
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <input style={{ ...S.inp, width: 230 }} placeholder="Buscar cliente o número..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
         {[['pendientes', 'Pendientes'], ['pagadas', 'Pagadas'], ['todas', 'Todas']].map(([val, lbl]) => (
           <button key={val} onClick={() => setFiltro(val)} style={{ ...S.btnSm, background: filtro === val ? C.primary : '#fff', color: filtro === val ? '#fff' : '#555', borderColor: filtro === val ? 'transparent' : 'rgba(0,0,0,.15)' }}>{lbl}</button>
         ))}
-        <div style={{ marginLeft: 'auto', position: 'relative' }}>
-          <button onClick={() => setShowCols(s => !s)} style={{ ...S.btnSm, fontSize: 11 }}>⚙ Columnas</button>
-          {showCols && (
-            <div style={{ position: 'absolute', right: 0, top: '110%', background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, zIndex: 30, minWidth: 180, padding: '6px 0', boxShadow: '0 8px 24px rgba(0,0,0,.1)' }}>
-              {COL_OPTS.map(o => (
-                <label key={o.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={cols[o.key]} onChange={e => setCols(c => ({ ...c, [o.key]: e.target.checked }))} style={{ accentColor: C.primary, width: 13, height: 13 }} />
-                  {o.label}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
       <div style={S.card}>
         {filtradas.length === 0 ? (
           <div style={{ padding: '48px 20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}><div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>Sin facturas {filtro === 'pendientes' ? 'pendientes' : ''}</div>
         ) : (
-          <ResizableTable thStyle={S.th} columns={[
-            { key: 'num', label: '#', width: 80 },
-            { key: 'cliente', label: 'Cliente', width: 180 },
-            ...(cols.moneda ? [{ key: 'moneda', label: 'Moneda', width: 70 }] : []),
-            ...(cols.montoOrig ? [{ key: 'total', label: 'Total', width: 110 }] : []),
-            ...(cols.totalUSD ? [{ key: 'totalUSD', label: 'Total USD', width: 110, thStyle: { ...S.th, color: '#185FA5' } }] : []),
-            ...(cols.saldoOrig ? [{ key: 'saldo', label: 'Saldo', width: 110 }] : []),
-            ...(cols.saldoUSD ? [{ key: 'saldoUSD', label: 'Saldo USD', width: 110, thStyle: { ...S.th, color: '#A32D2D' } }] : []),
-            ...(cols.vendedor ? [{ key: 'vendedor', label: 'Vendedor', width: 120 }] : []),
-            { key: 'estado', label: 'Estado', width: 100 },
-            { key: 'venc', label: 'Vencimiento', width: 130 },
-            { key: 'acc', label: '', width: 90 },
-          ]}>
-            <tbody>
-              {filtradas.map(f => {
-                const est = f.estadoCalculado; const cfg = ESTADO_CFG[est] || C.gray
-                const dias = diasRestantes(f.fechaVencimiento)
-                const vencida = (est === 'Sin Pagar' || est === 'Parcial') && dias !== null && dias < 0
-                const proxima = !vencida && dias !== null && dias <= 5 && (est === 'Sin Pagar' || est === 'Parcial')
-                return (
-                  <tr key={f.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/facturacion/${f.id}`)} onMouseEnter={e => e.currentTarget.style.background = '#fafbff'} onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 11, color: '#94a3b8' }}>{f.numero}</td>
-                    <td style={{ ...S.td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ fontWeight: 500 }}>{f.clienteNombre || '—'}</span></td>
-                    {cols.moneda && <td style={{ ...S.td, fontSize: 11 }}><span style={{ padding: '1px 6px', borderRadius: 10, background: f.moneda === 'USD' ? '#E6F1FB' : '#FAEEDA', color: f.moneda === 'USD' ? '#185FA5' : '#854F0B', fontWeight: 600, fontSize: 10 }}>{f.moneda}</span></td>}
-                    {cols.montoOrig && <td style={{ ...S.td, fontWeight: 500 }}>{fmt(f.total, f.moneda)}</td>}
-                    {cols.totalUSD && <td style={{ ...S.td, fontWeight: 500, color: '#185FA5' }}>{fmtUSD(toUSD_cobrar(f.total, f.moneda, tc))}</td>}
-                    {cols.saldoOrig && <td style={{ ...S.td, fontWeight: 600, color: Number(f.saldo) <= 0 ? '#94a3b8' : '#A32D2D' }}>{Number(f.saldo) <= 0 ? '—' : fmt(f.saldo, f.moneda)}</td>}
-                    {cols.saldoUSD && <td style={{ ...S.td, fontWeight: 700, color: Number(f.saldo) <= 0 ? '#94a3b8' : '#A32D2D' }}>{Number(f.saldo) <= 0 ? '—' : fmtUSD(toUSD_cobrar(f.saldo, f.moneda, tc))}</td>}
-                    {cols.vendedor && <td style={{ ...S.td, fontSize: 11, color: '#94a3b8' }}>{f.vendedorNombre || '—'}</td>}
-                    <td style={S.td}><Badge label={est} palette={cfg} /></td>
-                    <td style={{ ...S.td, fontSize: 12 }}>
-                      <span style={{ color: vencida ? '#A32D2D' : proxima ? '#854F0B' : '#666' }}>
-                        {fmtFecha(f.fechaVencimiento)}
-                        {vencida && <span style={{ marginLeft: 5, fontSize: 9, background: '#FCEBEB', color: '#A32D2D', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>VENC.</span>}
-                        {proxima && <span style={{ marginLeft: 5, fontSize: 9, background: '#FAEEDA', color: '#854F0B', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>{dias}d</span>}
-                      </span>
-                    </td>
-                    <td style={S.td} onClick={e => e.stopPropagation()}>
-                      {(est === 'Sin Pagar' || est === 'Parcial') && (
-                        <button onClick={() => setModalFac(f)} style={{ padding: '5px 12px', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: C.green.bg, color: C.green.text, fontFamily: 'inherit' }}>+ Abono</button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </ResizableTable>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>{['#', 'Cliente', 'Total', 'Saldo', 'Estado', 'Vencimiento', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {filtradas.map(f => {
+                  const est = f.estadoCalculado; const cfg = ESTADO_CFG[est] || C.gray
+                  const dias = diasRestantes(f.fechaVencimiento)
+                  const vencida = (est === 'Sin Pagar' || est === 'Parcial') && dias !== null && dias < 0
+                  const proxima = !vencida && dias !== null && dias <= 5 && (est === 'Sin Pagar' || est === 'Parcial')
+                  return (
+                    <tr key={f.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/facturacion/${f.id}`)} onMouseEnter={e => e.currentTarget.style.background = '#fafbff'} onMouseLeave={e => e.currentTarget.style.background = ''}>
+                      <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 11, color: '#94a3b8' }}>{f.numero}</td>
+                      <td style={S.td}><p style={{ fontWeight: 500, margin: 0 }}>{f.clienteNombre || '—'}</p>{f.vendedorNombre && <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{f.vendedorNombre}</p>}</td>
+                      <td style={{ ...S.td, fontWeight: 500 }}>{fmt(f.total, f.moneda)}</td>
+                      <td style={{ ...S.td, fontWeight: 700, color: Number(f.saldo) <= 0 ? '#94a3b8' : '#A32D2D' }}>{Number(f.saldo) <= 0 ? '—' : fmt(f.saldo, f.moneda)}</td>
+                      <td style={S.td}><Badge label={est} palette={cfg} /></td>
+                      <td style={{ ...S.td, fontSize: 12 }}>
+                        <span style={{ color: vencida ? '#A32D2D' : proxima ? '#854F0B' : '#666' }}>
+                          {fmtFecha(f.fechaVencimiento)}
+                          {vencida && <span style={{ marginLeft: 5, fontSize: 9, background: '#FCEBEB', color: '#A32D2D', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>VENC.</span>}
+                          {proxima && <span style={{ marginLeft: 5, fontSize: 9, background: '#FAEEDA', color: '#854F0B', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>{dias}d</span>}
+                        </span>
+                      </td>
+                      <td style={S.td} onClick={e => e.stopPropagation()}>
+                        {(est === 'Sin Pagar' || est === 'Parcial') && (
+                          <button onClick={() => setModalFac(f)} style={{ padding: '5px 12px', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: C.green.bg, color: C.green.text, fontFamily: 'inherit' }}>+ Abono</button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
@@ -1232,102 +1173,67 @@ function TabCxC({ facturas, cuentas, onAbono, navigate, tc }) {
 }
 
 // ─── Tab: CxP ─────────────────────────────────────────────────────────────────
-function TabCxP({ ordenes, navigate, tc }) {
+function TabCxP({ ordenes, navigate }) {
   const pendientes = useMemo(() => ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida')
     .sort((a, b) => (diasRestantes(a.fechaVencimientoPago) ?? 9999) - (diasRestantes(b.fechaVencimientoPago) ?? 9999))
   , [ordenes])
 
-  const [cols, setCols] = useState({ montoOrig: true, totalUSD: true, saldoOrig: true, saldoUSD: true, moneda: true })
-  const [showCols, setShowCols] = useState(false)
-
-  const ESTADO_CFG = { 'Crédito pendiente': C.amber, 'Vencida': C.red }
-  const COL_OPTS = [
-    { key: 'montoOrig', label: 'Total original' },
-    { key: 'totalUSD', label: 'Total USD' },
-    { key: 'saldoOrig', label: 'Saldo original' },
-    { key: 'saldoUSD', label: 'Saldo USD' },
-    { key: 'moneda', label: 'Moneda' },
-  ]
+  const ESTADO_CFG = {
+    'Crédito pendiente': C.amber,
+    'Vencida':           C.red,
+  }
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <MetCard label="Por pagar ₡" valor={fmtCRC(pendientes.filter(o => o.moneda === 'CRC').reduce((s, o) => s + Number(o.saldo ?? o.total ?? 0), 0))} palette={C.amber} sub={`${pendientes.filter(o => o.moneda === 'CRC').length} órdenes`} />
-        <MetCard label="Por pagar $" valor={fmtUSD(pendientes.filter(o => o.moneda !== 'CRC').reduce((s, o) => s + Number(o.saldo ?? o.total ?? 0), 0))} palette={C.blue} sub={`${pendientes.filter(o => o.moneda !== 'CRC').length} órdenes`} />
-        <MetCard label="Por pagar Total" valor={fmtUSD(pendientes.reduce((s, o) => s + toUSD_pagar(o.saldo ?? o.total ?? 0, o.moneda, tc), 0))} palette={C.red} sub={`${pendientes.length} pendientes · Tasa ₡${tc?.compra || 0}`} />
+        <MetCard label="Por pagar" valor={fmtUSD(pendientes.reduce((s, o) => s + Number(o.saldo ?? o.total ?? 0), 0))} palette={C.amber} sub={`${pendientes.length} órdenes con crédito`} />
         <MetCard label="Vencidas" valor={pendientes.filter(o => o.estadoCalculado === 'Vencida').length} palette={C.red} />
-      </div>
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
-        <div style={{ marginLeft: 'auto', position: 'relative' }}>
-          <button onClick={() => setShowCols(s => !s)} style={{ ...S.btnSm, fontSize: 11 }}>⚙ Columnas</button>
-          {showCols && (
-            <div style={{ position: 'absolute', right: 0, top: '110%', background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, zIndex: 30, minWidth: 180, padding: '6px 0', boxShadow: '0 8px 24px rgba(0,0,0,.1)' }}>
-              {COL_OPTS.map(o => (
-                <label key={o.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={cols[o.key]} onChange={e => setCols(c => ({ ...c, [o.key]: e.target.checked }))} style={{ accentColor: C.primary, width: 13, height: 13 }} />
-                  {o.label}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
       <div style={S.card}>
         {pendientes.length === 0 ? (
           <div style={{ padding: '48px 20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}><div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>Sin créditos pendientes</div>
         ) : (
-          <ResizableTable thStyle={S.th} columns={[
-            { key: 'prov', label: 'Proveedor', width: 180 },
-            { key: 'num', label: '#', width: 80 },
-            ...(cols.moneda ? [{ key: 'moneda', label: 'Moneda', width: 70 }] : []),
-            ...(cols.montoOrig ? [{ key: 'total', label: 'Total', width: 110 }] : []),
-            ...(cols.totalUSD ? [{ key: 'totalUSD', label: 'Total USD', width: 110, thStyle: { ...S.th, color: '#185FA5' } }] : []),
-            ...(cols.saldoOrig ? [{ key: 'saldo', label: 'Saldo', width: 110 }] : []),
-            ...(cols.saldoUSD ? [{ key: 'saldoUSD', label: 'Saldo USD', width: 110, thStyle: { ...S.th, color: '#A32D2D' } }] : []),
-            { key: 'estado', label: 'Estado', width: 110 },
-            { key: 'venc', label: 'Vencimiento', width: 130 },
-            { key: 'acc', label: '', width: 140 },
-          ]}>
-            <tbody>
-              {pendientes.map(o => {
-                const cfg = ESTADO_CFG[o.estadoCalculado] || C.amber
-                const dias = diasRestantes(o.fechaVencimientoPago)
-                const vencida = o.estadoCalculado === 'Vencida'
-                const proxima = !vencida && dias !== null && dias <= 5
-                const saldo = Number(o.saldo ?? o.total ?? 0)
-                const total = Number(o.total ?? 0)
-                const pct = total > 0 ? Math.min(100, Math.round(((total - saldo) / total) * 100)) : 0
-                return (
-                  <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/compras/${o.id}`)} onMouseEnter={e => e.currentTarget.style.background = '#fafafa'} onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    <td style={{ ...S.td, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.proveedorNombre || '—'}</td>
-                    <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 11, color: '#94a3b8' }}>{o.numero}</td>
-                    {cols.moneda && <td style={{ ...S.td, fontSize: 11 }}><span style={{ padding: '1px 6px', borderRadius: 10, background: o.moneda === 'USD' ? '#E6F1FB' : '#FAEEDA', color: o.moneda === 'USD' ? '#185FA5' : '#854F0B', fontWeight: 600, fontSize: 10 }}>{o.moneda || 'USD'}</span></td>}
-                    {cols.montoOrig && <td style={{ ...S.td, fontWeight: 500 }}>{fmt(total, o.moneda)}</td>}
-                    {cols.totalUSD && <td style={{ ...S.td, fontWeight: 500, color: '#185FA5' }}>{fmtUSD(toUSD_pagar(total, o.moneda, tc))}</td>}
-                    {cols.saldoOrig && <td style={{ ...S.td, fontWeight: 600, color: '#A32D2D' }}>{fmt(saldo, o.moneda)}</td>}
-                    {cols.saldoUSD && <td style={{ ...S.td, fontWeight: 700, color: '#A32D2D' }}>{fmtUSD(toUSD_pagar(saldo, o.moneda, tc))}</td>}
-                    <td style={S.td}><Badge label={o.estadoCalculado} palette={cfg} /></td>
-                    <td style={{ ...S.td, fontSize: 12 }}>
-                      <span style={{ color: vencida ? '#A32D2D' : proxima ? '#854F0B' : '#666' }}>
-                        {fmtFecha(o.fechaVencimientoPago)}
-                        {vencida && <span style={{ marginLeft: 5, fontSize: 9, background: '#FCEBEB', color: '#A32D2D', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>VENC.</span>}
-                        {proxima && <span style={{ marginLeft: 5, fontSize: 9, background: '#FAEEDA', color: '#854F0B', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>{dias}d</span>}
-                      </span>
-                    </td>
-                    <td style={S.td} onClick={e => e.stopPropagation()}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 48, height: 4, background: '#f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: pct >= 100 ? '#639922' : '#EF9F27', borderRadius: 10 }} />
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>{['Proveedor', '#', 'Total', 'Saldo', 'Estado', 'Vencimiento', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {pendientes.map(o => {
+                  const cfg = ESTADO_CFG[o.estadoCalculado] || C.amber
+                  const dias = diasRestantes(o.fechaVencimientoPago)
+                  const vencida = o.estadoCalculado === 'Vencida'
+                  const proxima = !vencida && dias !== null && dias <= 5
+                  const saldo = Number(o.saldo ?? o.total ?? 0)
+                  const total = Number(o.total ?? 0)
+                  const pct   = total > 0 ? Math.min(100, Math.round(((total - saldo) / total) * 100)) : 0
+                  return (
+                    <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/compras/${o.id}`)} onMouseEnter={e => e.currentTarget.style.background = '#fafafa'} onMouseLeave={e => e.currentTarget.style.background = ''}>
+                      <td style={{ ...S.td, fontWeight: 500 }}>{o.proveedorNombre || '—'}</td>
+                      <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 11, color: '#94a3b8' }}>{o.numero}</td>
+                      <td style={{ ...S.td, fontWeight: 500 }}>{fmt(o.total, o.moneda)}</td>
+                      <td style={{ ...S.td, fontWeight: 700, color: '#A32D2D' }}>{fmt(saldo, o.moneda)}</td>
+                      <td style={S.td}><Badge label={o.estadoCalculado} palette={cfg} /></td>
+                      <td style={{ ...S.td, fontSize: 12 }}>
+                        <span style={{ color: vencida ? '#A32D2D' : proxima ? '#854F0B' : '#666' }}>
+                          {fmtFecha(o.fechaVencimientoPago)}
+                          {vencida && <span style={{ marginLeft: 5, fontSize: 9, background: '#FCEBEB', color: '#A32D2D', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>VENC.</span>}
+                          {proxima && <span style={{ marginLeft: 5, fontSize: 9, background: '#FAEEDA', color: '#854F0B', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>{dias}d</span>}
+                        </span>
+                      </td>
+                      <td style={S.td} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 48, height: 4, background: '#f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${pct}%`, background: pct >= 100 ? '#639922' : '#EF9F27', borderRadius: 10 }} />
+                          </div>
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{pct}%</span>
+                          <button onClick={() => navigate(`/compras/${o.id}`)} style={{ ...S.btnSm, fontSize: 11 }}>Abonar</button>
                         </div>
-                        <span style={{ fontSize: 10, color: '#94a3b8' }}>{pct}%</span>
-                        <button onClick={() => navigate(`/compras/${o.id}`)} style={{ ...S.btnSm, fontSize: 11 }}>Abonar</button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </ResizableTable>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
@@ -1692,13 +1598,13 @@ function TabFlujo({ facturas, ordenes, tc }) {
     facturas.forEach(f => {
       ;(f.pagos || []).forEach(p => {
         if (!p.fecha) return
-        movs.push({ id: `${f.id}-${p.fecha}-${p.monto}`, fecha: p.fecha, tipo: 'ingreso', concepto: `Cobro — ${f.clienteNombre || f.numero}`, monto: toUSD_cobrar(p.monto, f.moneda, tc), montoOriginal: p.monto, moneda: f.moneda, ref: f.numero })
+        movs.push({ id: `${f.id}-${p.fecha}-${p.monto}`, fecha: p.fecha, tipo: 'ingreso', concepto: `Cobro — ${f.clienteNombre || f.numero}`, monto: toUSD(p.monto, f.moneda, tc), montoOriginal: p.monto, moneda: f.moneda, ref: f.numero })
       })
     })
     ordenes.filter(o => o.estado === 'Pagada' || o.totalPagado > 0).forEach(o => {
       ;(o.pagos || []).forEach(p => {
         if (!p.fecha) return
-        movs.push({ id: `${o.id}-${p.fecha}-${p.monto}`, fecha: p.fecha, tipo: 'egreso', concepto: `Pago — ${o.proveedorNombre || o.numero}`, monto: toUSD_pagar(p.monto, o.moneda, tc), montoOriginal: p.monto, moneda: o.moneda, ref: o.numero })
+        movs.push({ id: `${o.id}-${p.fecha}-${p.monto}`, fecha: p.fecha, tipo: 'egreso', concepto: `Pago — ${o.proveedorNombre || o.numero}`, monto: toUSD(p.monto, o.moneda, tc), montoOriginal: p.monto, moneda: o.moneda, ref: o.numero })
       })
     })
     return movs.sort((a, b) => b.fecha.localeCompare(a.fecha))
@@ -1708,10 +1614,10 @@ function TabFlujo({ facturas, ordenes, tc }) {
   const proyeccion = useMemo(() => {
     const items = []
     facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').forEach(f => {
-      items.push({ id: f.id, tipo: 'entrada', concepto: `Por cobrar — ${f.clienteNombre || f.numero}`, monto: toUSD_cobrar(f.saldo ?? 0, f.moneda, tc), fecha: f.fechaVencimiento || '—', dias: diasRestantes(f.fechaVencimiento) })
+      items.push({ id: f.id, tipo: 'entrada', concepto: `Por cobrar — ${f.clienteNombre || f.numero}`, monto: toUSD(f.saldo ?? 0, f.moneda, tc), fecha: f.fechaVencimiento || '—', dias: diasRestantes(f.fechaVencimiento) })
     })
     ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida').forEach(o => {
-      items.push({ id: o.id, tipo: 'salida', concepto: `Por pagar — ${o.proveedorNombre || o.numero}`, monto: toUSD_pagar(o.saldo ?? o.total ?? 0, o.moneda, tc), fecha: o.fechaVencimientoPago || '—', dias: diasRestantes(o.fechaVencimientoPago) })
+      items.push({ id: o.id, tipo: 'salida', concepto: `Por pagar — ${o.proveedorNombre || o.numero}`, monto: toUSD(o.saldo ?? o.total ?? 0, o.moneda, tc), fecha: o.fechaVencimientoPago || '—', dias: diasRestantes(o.fechaVencimientoPago) })
     })
     return items.sort((a, b) => (a.dias ?? 999) - (b.dias ?? 999))
   }, [facturas, ordenes, tc])
@@ -1920,7 +1826,7 @@ export default function FinanzasPage() {
   const [proveedores, setProveedores] = useState([])
   const [cuentas,        setCuentas]        = useState([])
   const [cuentasLoaded,  setCuentasLoaded]  = useState(false)
-  const [tc,        setTc]        = useState({ venta: 520, compra: 520 })
+  const [tc,        setTc]        = useState(520)
   const [loading,   setLoading]   = useState(true)
 
   useEffect(() => {
@@ -1960,10 +1866,7 @@ export default function FinanzasPage() {
       setProveedores(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     })
     const u6 = onSnapshot(doc(db, 'configuracion', 'tasas'), snap => {
-      if (snap.exists()) {
-        const d = snap.data()
-        setTc({ venta: Number(d.venta || 520), compra: Number(d.compra || 520) })
-      }
+      if (snap.exists()) { const v = snap.data().venta || snap.data().compra; if (v) setTc(Number(v)) }
     })
     const u7 = onSnapshot(collection(db, 'cuentas_bancarias'), snap => {
       setCuentas(snap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -2063,10 +1966,10 @@ export default function FinanzasPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, color: C.primary, margin: 0 }}>Finanzas</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!loading && (() => {
-            const cxc = facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').reduce((s, f) => s + toUSD_cobrar(f.saldo ?? 0, f.moneda, tc), 0)
-            const cxp = ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida').reduce((s, o) => s + toUSD_pagar(o.saldo ?? o.total ?? 0, o.moneda, tc), 0)
-            const pas = deudas.filter(d => d.tipo === 'yo_debo' && d.estado === 'pendiente').reduce((s, d) => s + toUSD_pagar(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
-            const act = deudas.filter(d => d.tipo === 'empresa_debe' && d.estado === 'pendiente').reduce((s, d) => s + toUSD_cobrar(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
+            const cxc = facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial').reduce((s, f) => s + toUSD(f.saldo ?? 0, f.moneda, tc), 0)
+            const cxp = ordenes.filter(o => o.estadoCalculado === 'Crédito pendiente' || o.estadoCalculado === 'Vencida').reduce((s, o) => s + toUSD(o.saldo ?? o.total ?? 0, o.moneda, tc), 0)
+            const pas = deudas.filter(d => d.tipo === 'yo_debo' && d.estado === 'pendiente').reduce((s, d) => s + toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
+            const act = deudas.filter(d => d.tipo === 'empresa_debe' && d.estado === 'pendiente').reduce((s, d) => s + toUSD(d.saldo ?? d.monto ?? 0, d.moneda, tc), 0)
             const neta = cxc + act - cxp - pas
             return [
               { label: 'CxC', valor: fmtUSD(cxc), color: '#3B6D11' },
@@ -2105,8 +2008,8 @@ export default function FinanzasPage() {
           {tab === 'balance'           && <TabBalanceGeneral    facturas={facturas} ordenes={ordenes} deudas={deudas} tc={tc} />}
           {tab === 'bancos'            && <TabBancos            cuentas={cuentas} cuentasLoaded={cuentasLoaded} tc={tc} />}
           {tab === 'flujo'             && <TabDashboard          facturas={facturas} ordenes={ordenes} gastos={gastos} deudas={deudas} tc={tc} setTab={setTab} />}
-          {tab === 'cxc'               && <TabCxC               facturas={facturas} cuentas={cuentas} onAbono={handleAbonoCxC} navigate={navigate} tc={tc} />}
-          {tab === 'cxp'               && <TabCxP               ordenes={ordenes} navigate={navigate} tc={tc} />}
+          {tab === 'cxc'               && <TabCxC               facturas={facturas} cuentas={cuentas} onAbono={handleAbonoCxC} navigate={navigate} />}
+          {tab === 'cxp'               && <TabCxP               ordenes={ordenes} navigate={navigate} />}
           {tab === 'deudas'            && <TabDeudas            deudas={deudas} cuentas={cuentas} onNueva={() => { setEditandoDeuda(null); setModalDeuda(true) }} onEditar={d => { setEditandoDeuda(d); setModalDeuda(true) }} onEliminar={handleEliminarDeuda} onMarcarPagada={handleMarcarPagadaDeuda} onAbono={handleAbonoDeuda} />}
         </>
       )}

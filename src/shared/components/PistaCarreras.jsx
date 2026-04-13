@@ -54,10 +54,10 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
     if (!usuario?.uid) return
     setCargando(true)
     try {
-      const snapU = await getDocs(collection(db, 'usuarios'))
-      const vendedores = snapU.docs
+      const snapE = await getDocs(collection(db, 'empleados'))
+      const vendedores = snapE.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(u => u.activo !== false && !['Solo lectura','Técnico'].includes(u.rol))
+        .filter(e => e.activo !== false && e.asignableVentas)
 
       const metaSnap = await getDoc(doc(db, 'metas', docId))
       const metasData = metaSnap.exists() ? (metaSnap.data().vendedores || {}) : {}
@@ -72,11 +72,14 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
       ))
       const facturas = snapF.docs.map(d => ({ id: d.id, ...d.data() }))
 
-      const ventasPorVendedor = {}
+      // Mapear ventas: facturas usan vendedorId (uid de usuario), empleados tienen usuarioId
+      const ventasPorEmpleado = {}
       facturas.forEach(f => {
         const vid = f.vendedorId
         if (!vid) return
-        ventasPorVendedor[vid] = (ventasPorVendedor[vid] || 0) + baseSinIva(f)
+        // Buscar empleado por usuarioId vinculado
+        const emp = vendedores.find(e => e.usuarioId === vid)
+        if (emp) ventasPorEmpleado[emp.id] = (ventasPorEmpleado[emp.id] || 0) + baseSinIva(f)
       })
 
       let sumaEquipo = 0, sumaMetaEquipo = 0
@@ -84,7 +87,7 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
       const lista = vendedores.map((v, idx) => {
         const meta = metasData[v.id] || {}
         const metaNum = Number(meta.meta || 0)
-        const vendido = ventasPorVendedor[v.id] || 0
+        const vendido = ventasPorEmpleado[v.id] || 0
         const pct = metaNum > 0 ? Math.min((vendido / metaNum) * 100, 100) : 0
         const cumplio = vendido >= metaNum && metaNum > 0
 
@@ -96,7 +99,7 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
         sumaEquipo     += vendido
         sumaMetaEquipo += metaNum
 
-        return { ...v, meta: metaNum, vendido, pct: Math.round(pct), cumplio, comision, color: COLORES[idx % COLORES.length] }
+        return { ...v, nombre: `${v.nombre || ''} ${v.apellido || ''}`.trim(), meta: metaNum, vendido, pct: Math.round(pct), cumplio, comision, color: COLORES[idx % COLORES.length] }
       })
 
       lista.sort((a, b) => b.pct - a.pct)

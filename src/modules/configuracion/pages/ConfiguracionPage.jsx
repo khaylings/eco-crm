@@ -1812,12 +1812,12 @@ function PaginaEmpleados() {
   }, [])
 
   const abrirNuevo = () => {
-    setForm({ nombre: '', apellido: '', telefono: '', cedula: '', cargoId: '', cargoNombre: '', usuarioId: '', fechaIngreso: '', activo: true, asignableOperaciones: false })
+    setForm({ nombre: '', apellido: '', telefono: '', cedula: '', cargoId: '', cargoNombre: '', usuarioId: '', fechaIngreso: '', activo: true, asignableOperaciones: false, asignableVentas: false })
     setModal('nuevo')
   }
 
   const abrirEditar = (emp) => {
-    setForm({ nombre: emp.nombre || '', apellido: emp.apellido || '', telefono: emp.telefono || '', cedula: emp.cedula || '', cargoId: emp.cargoId || '', cargoNombre: emp.cargoNombre || '', usuarioId: emp.usuarioId || '', fechaIngreso: emp.fechaIngreso || '', activo: emp.activo !== false, asignableOperaciones: emp.asignableOperaciones || false })
+    setForm({ nombre: emp.nombre || '', apellido: emp.apellido || '', telefono: emp.telefono || '', cedula: emp.cedula || '', cargoId: emp.cargoId || '', cargoNombre: emp.cargoNombre || '', usuarioId: emp.usuarioId || '', fechaIngreso: emp.fechaIngreso || '', activo: emp.activo !== false, asignableOperaciones: emp.asignableOperaciones || false, asignableVentas: emp.asignableVentas || false })
     setModal(emp)
   }
 
@@ -1980,6 +1980,10 @@ function PaginaEmpleados() {
                 <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                   <input type="checkbox" checked={form.asignableOperaciones} onChange={e => setForm({ ...form, asignableOperaciones: e.target.checked })} style={{ accentColor: '#854F0B', width: 14, height: 14 }} />
                   Asignable a operaciones
+                </label>
+                <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.asignableVentas} onChange={e => setForm({ ...form, asignableVentas: e.target.checked })} style={{ accentColor: '#185FA5', width: 14, height: 14 }} />
+                  Asignable a ventas
                 </label>
               </div>
             </div>

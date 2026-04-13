@@ -99,24 +99,6 @@ export async function registrarPagoPendiente({ factura, pago, vendedor }) {
  * Solicita eliminación de una factura — notifica solo a Super Administradores.
  */
 export async function solicitarEliminacionFactura({ factura, solicitante, observacion }) {
-  return solicitarEliminacion({
-    tipoDoc: 'factura', coleccion: 'facturas',
-    documento: { id: factura.id, nombre: factura.numero, clienteNombre: factura.clienteNombre, total: factura.total, moneda: factura.moneda },
-    link: `/facturacion/${factura.id}`,
-    solicitante, observacion,
-  })
-}
-
-/**
- * Solicitud genérica de eliminación — funciona para cualquier documento.
- * tipoDoc: 'factura' | 'cotizacion' | 'lead' | 'orden_compra' | 'contacto' | 'empresa'
- */
-export async function solicitarEliminacion({ tipoDoc, coleccion, documento, link, solicitante, observacion }) {
-  const TIPO_LABELS = {
-    factura: 'Factura', cotizacion: 'Cotización', lead: 'Lead',
-    orden_compra: 'Orden de compra', contacto: 'Contacto', empresa: 'Empresa',
-  }
-  const label = TIPO_LABELS[tipoDoc] || tipoDoc
   try {
     const usuariosSnap = await getDocs(collection(db, 'usuarios'))
     const superAdmins = usuariosSnap.docs
@@ -125,19 +107,20 @@ export async function solicitarEliminacion({ tipoDoc, coleccion, documento, link
 
     await Promise.all(superAdmins.map(u => crearNotificacion({
       destinatarioId: u.uid,
-      tipo:           'solicitud_eliminacion',
-      titulo:         `🗑️ Solicitud de eliminación — ${label}`,
-      cuerpo:         `${solicitante?.nombre || 'Un usuario'} solicita eliminar ${label.toLowerCase()} "${documento.nombre || documento.numero || documento.id}". ${observacion ? 'Motivo: ' + observacion : ''}`,
-      link:           link || '/',
+      tipo:           'eliminacion_factura',
+      titulo:         `Solicitud de eliminación — ${factura.numero}`,
+      cuerpo:         `${solicitante?.nombre || 'Un usuario'} solicita eliminar esta factura. Observación: ${observacion}`,
+      link:           `/facturacion/${factura.id}`,
+      facturaId:      factura.id,
+      facturaNumero:  factura.numero,
+      vendedorId:     solicitante?.uid || null,
       meta: {
-        accion:         'eliminar',
-        tipoDoc,
-        coleccion,
-        documentoId:    documento.id,
-        documentoNombre: documento.nombre || documento.numero || '',
-        observacion:    observacion || '',
-        solicitanteId:  solicitante?.uid || null,
-        solicitante:    solicitante?.nombre || 'Usuario',
+        accion:      'eliminar_factura',
+        observacion,
+        solicitante: solicitante?.nombre || 'Usuario',
+        clienteNombre: factura.clienteNombre,
+        total:       factura.total,
+        moneda:      factura.moneda,
       },
     })))
   } catch (e) {

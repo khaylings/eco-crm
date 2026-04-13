@@ -64,11 +64,11 @@ const printStyles = `
     .no-print { display: none !important; }
     .solo-print { display: block !important; }
     .cot-print-wrapper { padding: 0 !important; margin: 0 !important; background: white !important; }
-    .pagina-cot { page-break-inside: auto; box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; transform: scale(1.371); transform-origin: top left; }
-    .print-header { display: block !important; position: fixed; top: 0; left: 0; width: 595px; background: white; transform: scale(1.371); transform-origin: top left; }
-    .print-footer { display: block !important; position: fixed; bottom: 0; left: 0; width: 595px; background: white; transform: scale(1.371); transform-origin: bottom left; }
-    .print-footer > div { overflow: visible !important; }
-    .pagina-terminos { display: block !important; page-break-before: always; box-shadow: none !important; margin: 0 !important; transform: scale(1.371); transform-origin: top left; }
+    .pagina-cot { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; transform: scale(1.371); transform-origin: top left; page-break-after: always; overflow: hidden; }
+    .print-header { display: none !important; }
+    .print-footer { display: none !important; }
+    .contenido-opcion { overflow: hidden !important; }
+    .pagina-terminos { display: flex !important; flex-direction: column !important; page-break-before: always; box-shadow: none !important; margin: 0 !important; transform: scale(1.371); transform-origin: top left; }
     .portada-page { page-break-after: always; }
     .panel-lateral-pub { display: none !important; }
   }
@@ -605,11 +605,16 @@ function PaginaWidget({ headerWidgets=[], contentWidgets=[], footerWidgets=[], h
   }, [esPdf]);
 
   if (esPdf) {
+    // Letter = 1056px a 96dpi, escalado 1.371 = ~770px internos
+    const paginaAlto = Math.round(1056 / 1.371)
+    const contenidoAlto = paginaAlto - headerH - footerH
     return (
-      <div className="pagina-cot" style={{background:'#fff',width:HOJA_W,minHeight: Math.round(1056 / 1.371) - headerH - footerH,fontFamily:'Inter,sans-serif',margin:'0 auto'}}>
-        <div style={{height: headerH}} />
-        <SeccionContenido {...props} widgets={contentWidgets} />
-        <div style={{height: footerH + 20}} />
+      <div className="pagina-cot" style={{background:'#fff',width:HOJA_W,height:paginaAlto,fontFamily:'Inter,sans-serif',margin:'0 auto',display:'flex',flexDirection:'column'}}>
+        <SeccionAbsoluta {...props} widgets={headerWidgets} height={headerH} />
+        <div className="contenido-opcion" style={{flex:1,overflow:'hidden'}}>
+          <SeccionContenido {...props} widgets={contentWidgets} />
+        </div>
+        <SeccionAbsoluta {...props} widgets={footerWidgets} height={footerH} />
       </div>
     );
   }
@@ -1225,38 +1230,42 @@ export default function CotizacionPublica() {
             </div>
           )}
           {(cot.opciones || []).map((o, idx) => (
-            <PaginaWidget
-              key={o.id}
-              headerWidgets={headerWidgets}
-              contentWidgets={contentWidgets.filter(w => w.type !== 'terminos')}
-              footerWidgets={footerWidgets}
-              headerH={headerH}
-              footerH={footerH}
-              empresa={empresa}
-              cot={{ ...cot, terminos }}
-              op={o}
-              opcionales={{}}
-              setOpcionales={() => {}}
-              esPdf={true}
-              totales={calcTotalesOp(o, cot, {})}
-              onCambiarOpcion={() => {}}
-              pagina={idx + 1}
-              totalPaginas={(cot.opciones || []).length}
-            />
-          ))}
-          {/* Términos y condiciones — hoja separada */}
-          {terminos && (
-            <div className="pagina-terminos" style={{background:'#fff',width:HOJA_W,fontFamily:'Inter,sans-serif',margin:'0 auto'}}>
-              <div style={{height: headerH}} />
-              <div style={{padding:'12px 24px'}}>
-                <div style={{fontSize:11,fontWeight:700,color:'#1a3a5c',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:10}}>Términos y condiciones</div>
-                <div style={{fontSize:10,color:'#555',whiteSpace:'pre-wrap',lineHeight:1.7}}>
-                  {terminos}
-                </div>
-              </div>
-              <div style={{height: footerH + 20}} />
+            <div key={o.id}>
+              <PaginaWidget
+                headerWidgets={headerWidgets}
+                contentWidgets={contentWidgets.filter(w => w.type !== 'terminos')}
+                footerWidgets={footerWidgets}
+                headerH={headerH}
+                footerH={footerH}
+                empresa={empresa}
+                cot={{ ...cot, terminos }}
+                op={o}
+                opcionales={{}}
+                setOpcionales={() => {}}
+                esPdf={true}
+                totales={calcTotalesOp(o, cot, {})}
+                onCambiarOpcion={() => {}}
+                pagina={idx + 1}
+                totalPaginas={(cot.opciones || []).length}
+              />
             </div>
-          )}
+          ))}
+          {/* Términos y condiciones — hoja separada con header y footer */}
+          {terminos && (() => {
+            const paginaAlto = Math.round(1056 / 1.371)
+            const contenidoAlto = paginaAlto - headerH - footerH
+            const propsTerminos = { empresa, cot: { ...cot, terminos }, op, opcionales: {}, setOpcionales: () => {}, esPdf: true, totales, cambiarOpcionFn: () => {} }
+            return (
+              <div className="pagina-terminos" style={{background:'#fff',width:HOJA_W,height:paginaAlto,fontFamily:'Inter,sans-serif',margin:'0 auto',display:'flex',flexDirection:'column'}}>
+                <SeccionAbsoluta {...propsTerminos} widgets={headerWidgets} height={headerH} />
+                <div style={{flex:1,overflow:'hidden',padding:'12px 24px',boxSizing:'border-box'}}>
+                  <div style={{fontSize:11,fontWeight:700,color:'#1a3a5c',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:10}}>Términos y condiciones</div>
+                  <div style={{fontSize:10,color:'#555',whiteSpace:'pre-wrap',lineHeight:1.7}}>{terminos}</div>
+                </div>
+                <SeccionAbsoluta {...propsTerminos} widgets={footerWidgets} height={footerH} />
+              </div>
+            )
+          })()}
           {/* Header fijo — se repite en cada hoja impresa */}
           <div className="print-header">
             <SeccionAbsoluta widgets={headerWidgets} height={headerH} empresa={empresa}

@@ -79,8 +79,6 @@ const NOTIF_CONFIG = {
   factura_proxima:   { icono: '⚠️', color: '#854F0B', bg: '#FAEEDA', label: 'Vence pronto' },
   tasa_recordatorio: { icono: '💱', color: '#185FA5', bg: '#E6F1FB', label: 'Tasa del dólar' },
   mensaje_interno:   { icono: '💬', color: '#185FA5', bg: '#E6F1FB', label: 'Mensaje interno' },
-  solicitud_eliminacion: { icono: '🗑️', color: '#A32D2D', bg: '#FCEBEB', label: 'Solicitud eliminación' },
-  eliminacion_factura:   { icono: '🗑️', color: '#A32D2D', bg: '#FCEBEB', label: 'Solicitud eliminación' },
   general:           { icono: '🔔', color: '#534AB7', bg: '#EEEDFE', label: 'Notificación' },
 }
 
@@ -218,7 +216,7 @@ function WidgetTasas({ puedeEditar }) {
   )
 }
 
-function PanelNotificaciones({ notifs, onMarcarLeida, onEliminar, onMarcarTodasLeidas, onNavegar, onCerrar, onAbrirEliminacion }) {
+function PanelNotificaciones({ notifs, onMarcarLeida, onEliminar, onMarcarTodasLeidas, onNavegar, onCerrar }) {
   const noLeidas = notifs.filter(n => !n.leida).length
 
   // Agrupar facturas sin cobrar en una sola notificación
@@ -258,11 +256,7 @@ function PanelNotificaciones({ notifs, onMarcarLeida, onEliminar, onMarcarTodasL
           const cfg = NOTIF_CONFIG[n.tipo] || NOTIF_CONFIG.general
           return (
             <div key={n.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderBottom: '0.5px solid rgba(0,0,0,.05)', background: n.leida ? '#fff' : '#fafbff' }}>
-              <div onClick={() => {
-                const esEliminacion = n.tipo === 'solicitud_eliminacion' || n.tipo === 'eliminacion_factura' || n.meta?.accion === 'eliminar' || n.meta?.accion === 'eliminar_factura'
-                if (esEliminacion && onAbrirEliminacion) { onAbrirEliminacion(n); onCerrar(); return }
-                if (n._esGrupo) { n._ids.forEach(id => onMarcarLeida(id)); } else { onMarcarLeida(n.id); } if (n.link) onNavegar(n.link); onCerrar()
-              }}
+              <div onClick={() => { if (n._esGrupo) { n._ids.forEach(id => onMarcarLeida(id)); } else { onMarcarLeida(n.id); } if (n.link) onNavegar(n.link); onCerrar() }}
                 style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: 1, cursor: n.link ? 'pointer' : 'default', minWidth: 0 }}
                 onMouseEnter={e => e.currentTarget.parentElement.style.background = '#f5f7fa'}
                 onMouseLeave={e => e.currentTarget.parentElement.style.background = n.leida ? '#fff' : '#fafbff'}>
@@ -339,48 +333,6 @@ function ModalAprobacion({ notif, onAprobar, onRechazar, onCerrar }) {
           <button onClick={handleRechazar} disabled={procesando || !motivo.trim()} style={{ padding: '8px 16px', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: procesando || !motivo.trim() ? 'not-allowed' : 'pointer', background: procesando || !motivo.trim() ? '#f0f0f0' : '#FCEBEB', color: procesando || !motivo.trim() ? '#bbb' : '#A32D2D', fontFamily: 'inherit' }}>Rechazar</button>
           <button onClick={handleAprobar} disabled={procesando || !monto} style={{ padding: '8px 20px', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: procesando || !monto ? 'not-allowed' : 'pointer', background: procesando || !monto ? '#e0e0e0' : '#EAF3DE', color: procesando || !monto ? '#aaa' : '#3B6D11', fontFamily: 'inherit' }}>
             {procesando ? 'Procesando...' : `Aprobar ${symb}${Number(monto || 0).toLocaleString()}`}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ModalEliminacion({ notif, onAprobar, onRechazar, onCerrar }) {
-  const [procesando, setProcesando] = useState(false)
-  const [motivo, setMotivo] = useState('')
-  const meta = notif.meta || {}
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(3px)', zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={e => e.target === e.currentTarget && onCerrar()}>
-      <div style={{ background: '#fff', borderRadius: 14, width: '95%', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '0.5px solid rgba(0,0,0,.08)', background: '#FCEBEB' }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#A32D2D' }}>🗑️ Solicitud de eliminación</div>
-          <div style={{ fontSize: 11, color: '#A32D2D', marginTop: 2 }}>{notif.titulo}</div>
-        </div>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ background: '#f8f9fb', borderRadius: 8, padding: '12px 14px' }}>
-            <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>Solicitado por</div>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>{meta.solicitante || '—'}</div>
-            {meta.observacion && <>
-              <div style={{ fontSize: 11, color: '#aaa', marginTop: 8, marginBottom: 4 }}>Motivo</div>
-              <div style={{ fontSize: 13 }}>{meta.observacion}</div>
-            </>}
-            <div style={{ fontSize: 11, color: '#aaa', marginTop: 8, marginBottom: 4 }}>Documento</div>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>{meta.documentoNombre || meta.documentoId || '—'}</div>
-          </div>
-          <div style={{ background: '#FFF8E1', border: '1px solid #EDD98A', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#854F0B' }}>
-            ⚠️ Esta acción es irreversible. El documento se eliminará permanentemente.
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Observación para rechazar (opcional)</label>
-            <textarea rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Motivo del rechazo..." style={{ width: '100%', padding: '8px 11px', border: '0.5px solid rgba(0,0,0,.18)', borderRadius: 7, fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-          </div>
-        </div>
-        <div style={{ padding: '12px 20px', borderTop: '0.5px solid rgba(0,0,0,.08)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onCerrar} style={{ padding: '8px 14px', border: '0.5px solid rgba(0,0,0,.15)', borderRadius: 7, fontSize: 13, cursor: 'pointer', background: '#f5f5f5', fontFamily: 'inherit' }}>Cancelar</button>
-          <button onClick={async () => { setProcesando(true); await onRechazar(motivo); setProcesando(false) }} disabled={procesando} style={{ padding: '8px 16px', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: procesando ? 'not-allowed' : 'pointer', background: '#FAEEDA', color: '#854F0B', fontFamily: 'inherit' }}>Rechazar</button>
-          <button onClick={async () => { setProcesando(true); await onAprobar(); setProcesando(false) }} disabled={procesando} style={{ padding: '8px 20px', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: procesando ? 'not-allowed' : 'pointer', background: procesando ? '#e0e0e0' : '#A32D2D', color: procesando ? '#aaa' : '#fff', fontFamily: 'inherit' }}>
-            {procesando ? 'Eliminando...' : '🗑️ Aprobar eliminación'}
           </button>
         </div>
       </div>
@@ -503,7 +455,6 @@ export default function MainLayout() {
   const [botOpen,   setBotOpen]   = useState(false)
   const [notifs,    setNotifs]    = useState([])
   const [modalAprobacion, setModalAprobacion] = useState(null)
-  const [modalEliminacion, setModalEliminacion] = useState(null)
   const menuRef  = useRef()
   const notifRef = useRef()
 
@@ -630,50 +581,6 @@ export default function MainLayout() {
     await deleteDoc(doc(db, 'notificaciones', notifId)).catch(() => {})
   }, [])
 
-  const aprobarEliminacion = async () => {
-    if (!modalEliminacion) return
-    const meta = modalEliminacion.meta || {}
-    try {
-      // Eliminar el documento
-      if (meta.coleccion && meta.documentoId) {
-        await deleteDoc(doc(db, meta.coleccion, meta.documentoId)).catch(() => {})
-      }
-      // Notificar al solicitante
-      if (meta.solicitanteId) {
-        const { crearNotificacion } = await import('../../services/notificaciones')
-        await crearNotificacion({
-          destinatarioId: meta.solicitanteId,
-          tipo: 'general',
-          titulo: '✅ Eliminación aprobada',
-          cuerpo: `"${meta.documentoNombre || ''}" fue eliminado por ${usuario?.nombre || 'admin'}.`,
-          link: '/',
-        }).catch(() => {})
-      }
-      // Eliminar la notificación de solicitud
-      await deleteDoc(doc(db, 'notificaciones', modalEliminacion.id)).catch(() => {})
-      setModalEliminacion(null)
-    } catch (e) { console.error(e) }
-  }
-
-  const rechazarEliminacion = async (motivo) => {
-    if (!modalEliminacion) return
-    const meta = modalEliminacion.meta || {}
-    try {
-      if (meta.solicitanteId) {
-        const { crearNotificacion } = await import('../../services/notificaciones')
-        await crearNotificacion({
-          destinatarioId: meta.solicitanteId,
-          tipo: 'general',
-          titulo: '❌ Eliminación rechazada',
-          cuerpo: `La solicitud de eliminar "${meta.documentoNombre || ''}" fue rechazada.${motivo ? ' Motivo: ' + motivo : ''}`,
-          link: '/',
-        }).catch(() => {})
-      }
-      await deleteDoc(doc(db, 'notificaciones', modalEliminacion.id)).catch(() => {})
-      setModalEliminacion(null)
-    } catch (e) { console.error(e) }
-  }
-
   const marcarTodasLeidas = useCallback(async () => {
     const noLeidas = notifs.filter(n => !n.leida)
     if (noLeidas.length === 0) return
@@ -727,9 +634,6 @@ export default function MainLayout() {
       {modalAprobacion && (
         <ModalAprobacion notif={modalAprobacion} onAprobar={aprobarPago} onRechazar={rechazarPago} onCerrar={() => setModalAprobacion(null)} />
       )}
-      {modalEliminacion && (
-        <ModalEliminacion notif={modalEliminacion} onAprobar={aprobarEliminacion} onRechazar={rechazarEliminacion} onCerrar={() => setModalEliminacion(null)} />
-      )}
 
       <header style={{ background: 'var(--eco-primary)', flexShrink: 0, display: 'flex', alignItems: 'center', height: 48, paddingRight: 16, zIndex: 10000, position: 'relative' }}>
         <div onClick={() => setGridOpen(o => !o)} style={{ width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderRight: '1px solid rgba(255,255,255,.15)', cursor: 'pointer', background: gridOpen ? 'rgba(255,255,255,.2)' : 'transparent', transition: 'background .15s' }}>
@@ -777,7 +681,7 @@ export default function MainLayout() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
               {noLeidas > 0 && <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: '#E24B4A', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', border: '1.5px solid var(--eco-primary)' }}>{noLeidas > 99 ? '99+' : noLeidas}</span>}
             </button>
-            {notifOpen && <PanelNotificaciones notifs={notifs} onMarcarLeida={marcarLeida} onEliminar={eliminarNotif} onMarcarTodasLeidas={marcarTodasLeidas} onNavegar={navigate} onCerrar={() => setNotifOpen(false)} onAbrirEliminacion={n => setModalEliminacion(n)} />}
+            {notifOpen && <PanelNotificaciones notifs={notifs} onMarcarLeida={marcarLeida} onEliminar={eliminarNotif} onMarcarTodasLeidas={marcarTodasLeidas} onNavegar={navigate} onCerrar={() => setNotifOpen(false)} />}
           </div>
 
           {/* Avatar / menú usuario */}

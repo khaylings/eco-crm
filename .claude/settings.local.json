@@ -10,7 +10,8 @@
       "Bash(xargs grep:*)",
       "WebFetch(domain:eco-ingenieria-finanzas.web.app)",
       "Bash(npm ls:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
