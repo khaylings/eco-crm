@@ -14,6 +14,7 @@ import { db } from '../../../firebase/config'
 import { useNavigate } from 'react-router-dom'
 import { usePermisos } from '../../../hooks/usePermisos'
 import ResizableTable from '../../../shared/components/ResizableTable'
+import UserAvatar from '../../../shared/components/UserAvatar'
 
 const fmtUSD = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtCRC = (n) => '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
@@ -264,7 +265,7 @@ export default function FacturacionPage() {
                           onClick={e => { e.stopPropagation(); navigate(`/proyectos/${f.proyectoId}`) }}>{f.proyectoNumero}</span>
                       ) : <span style={{ color: '#bbb' }}>—</span>}
                     </td>}
-                    {cols.vendedor && <td style={{ ...s.td, color: '#666', fontSize: 12 }}>{f.vendedorNombre || '—'}</td>}
+                    {cols.vendedor && <td style={{ ...s.td, color: '#666', fontSize: 12 }}><div style={{ display:'flex', alignItems:'center', gap:5 }}><UserAvatar nombre={f.vendedorNombre} uid={f.vendedorId} size={20} /><span>{f.vendedorNombre || '—'}</span></div></td>}
                     {puedeVerPrecios && cols.totalOrig && <td style={{ ...s.td, fontWeight: 500 }}>{fmt(f.total, f.moneda)}</td>}
                     {puedeVerPrecios && cols.totalUSD && <td style={{ ...s.td, fontWeight: 500, color: '#185FA5' }}>{fmtUSD(toUSD_cobrar(f.total, f.moneda, tc))}</td>}
                     {puedeVerPrecios && cols.saldoOrig && <td style={{ ...s.td, fontWeight: 600, color: Number(f.saldo) <= 0 ? '#ccc' : '#A32D2D' }}>{Number(f.saldo) <= 0 ? '—' : fmt(f.saldo, f.moneda)}</td>}

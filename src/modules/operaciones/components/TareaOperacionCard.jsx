@@ -80,7 +80,7 @@ export default function TareaOperacionCard({ lead, onClick }) {
 
         {lead.tecnicoNombre && (
           <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span style={{ width:14, height:14, borderRadius:'50%', background:'#185FA5', display:'inline-flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:7, fontWeight:700, flexShrink:0 }}>{(lead.tecnicoNombre||'?')[0].toUpperCase()}</span>
             {lead.tecnicoNombre}
           </span>
         )}

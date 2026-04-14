@@ -21,6 +21,7 @@ import { db, storage } from '../../../firebase/config'
 import { usePermisos } from '../../../hooks/usePermisos'
 import { crearNotificacion } from '../../../services/notificaciones'
 import FichaLead from '../../leads/components/FichaLead'
+import UserAvatar from '../../../shared/components/UserAvatar'
 
 const PRIORIDADES = [
   { valor: 'baja',  label: '⚪ Baja',  color: '#9e9e9e' },
@@ -573,6 +574,12 @@ function TarjetaLead({ lead, contactos, empresas, puedeEditar, puedeEliminar, on
       {lead.etiquetas?.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.4rem' }}>
           {lead.etiquetas.map(e => <span key={e} style={s.etiqueta}>{e}</span>)}
+        </div>
+      )}
+      {lead.vendedor && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: '0.4rem', fontSize: '0.72rem', color: '#888' }}>
+          <UserAvatar nombre={lead.vendedor} uid={lead.vendedorId} size={16} />
+          {lead.vendedor}
         </div>
       )}
     </div>

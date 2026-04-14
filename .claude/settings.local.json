@@ -11,7 +11,12 @@
       "WebFetch(domain:eco-ingenieria-finanzas.web.app)",
       "Bash(npm ls:*)",
       "Bash(npm install:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(sed -i '637s/          \\)}/              \\)/' src/pages/InicioPage.jsx)",
+      "Bash(sed -i '667s/          \\)}/              \\)/' src/pages/InicioPage.jsx)",
+      "Bash(sed -i '682s/          \\)}/              \\)/' src/pages/InicioPage.jsx)",
+      "Bash(sed -i '696s/          \\)}/              \\)/' src/pages/InicioPage.jsx)",
+      "Bash(node:*)"
     ]
   }
 }

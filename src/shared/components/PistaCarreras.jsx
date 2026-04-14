@@ -55,8 +55,15 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
     setCargando(true)
     try {
       const snapE = await getDocs(collection(db, 'empleados'))
+      const snapU = await getDocs(collection(db, 'usuarios'))
+      const usuariosMap = {}
+      snapU.docs.forEach(d => { usuariosMap[d.id] = d.data() })
       const vendedores = snapE.docs
-        .map(d => ({ id: d.id, ...d.data() }))
+        .map(d => {
+          const emp = { id: d.id, ...d.data() }
+          if (emp.usuarioId && usuariosMap[emp.usuarioId]?.fotoURL) emp.fotoURL = usuariosMap[emp.usuarioId].fotoURL
+          return emp
+        })
         .filter(e => e.activo !== false && e.asignableVentas)
 
       const metaSnap = await getDoc(doc(db, 'metas', docId))

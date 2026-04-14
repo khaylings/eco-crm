@@ -20,6 +20,7 @@ import ModalNuevoGrupo from './chats/ModalNuevoGrupo'
 import { Avatar, EtapaBadge, SectionLabel, Divider, sel } from './chats/ChatComponents'
 import { formatFecha, colorFromString } from './chats/helpers'
 import { crearNotificacion } from '../../../services/notificaciones'
+import UserAvatar from '../../../shared/components/UserAvatar'
 import { WASENDER_URL, WASENDER_TOKEN, NUDGE_IMG_URL, ETIQUETAS, ORIGENES, ROLES_SUPERVISOR, ROLES_RESUMEN_IA } from './chats/constants'
 
 function IndicadorLectura({ chatId, miembros, gruposInternos, usuarios, usuarioActualUid, mensajes }) {
@@ -853,7 +854,7 @@ export default function ChatsPage() {
                     <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
                       {!esInterno&&etiq?.valor&&<span style={{ fontSize:10, padding:'1px 6px', borderRadius:20, background:etiq.color+'18', color:etiq.color, fontWeight:600 }}>{etiq.label}</span>}
                       {!esInterno&&leadActivo&&<EtapaBadge etapa={leadActivo.etapa||leadActivo.columnaId} small columnas={columnsPipeline} />}
-                      {!esInterno&&agenteNombre&&<span style={{ fontSize:10, color:'#bbb' }}>👤 {agenteNombre}</span>}
+                      {!esInterno&&agenteNombre&&<span style={{ fontSize:10, color:'#bbb', display:'flex', alignItems:'center', gap:3 }}><UserAvatar nombre={agenteNombre} uid={item.agente} size={14} />{agenteNombre}</span>}
                       {esInterno&&(item.miembros||[]).length>2&&<span style={{ fontSize:10, color:'#aaa' }}>Chat grupal</span>}
                       {noLeidos>0&&<span style={{ marginLeft:'auto', background:esInterno?'#0F6E56':'var(--eco-primary,#1a3a5c)', color:'#fff', fontSize:10, padding:'1px 7px', borderRadius:10, fontWeight:700 }}>{noLeidos}</span>}
                       {mostrarArchivadas&&!esInterno&&<button onClick={e=>{e.stopPropagation();desarchivarChat(item)}} title="Reactivar chat" style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'#185FA5', fontSize:10, padding:'0 4px', fontFamily:'inherit' }}>↩</button>}

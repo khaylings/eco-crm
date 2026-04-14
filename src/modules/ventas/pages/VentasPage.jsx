@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect } from "react";
+import UserAvatar from "../../../shared/components/UserAvatar";
 import {
   collection, getDocs, addDoc, serverTimestamp,
   query, orderBy, doc, getDoc, updateDoc, runTransaction
@@ -368,7 +369,7 @@ export default function VentasPage() {
                         <p style={{ fontWeight: 500, margin: 0, marginBottom: c.empresaNombre ? 2 : 0 }}>{c.clienteNombre || "—"}</p>
                         {c.facturarEmpresa && c.empresaNombre && <p style={{ fontSize: 11, color: "#888", margin: 0 }}>{c.empresaNombre}</p>}
                       </td>
-                      <td style={{ ...s.td, color: "#666" }}>{c.vendedorNombre || "—"}</td>
+                      <td style={{ ...s.td, color: "#666" }}><div style={{ display:"flex", alignItems:"center", gap:6 }}><UserAvatar nombre={c.vendedorNombre} uid={c.vendedorId} size={22} /><span>{c.vendedorNombre || "—"}</span></div></td>
                       <td style={s.td}>
                         <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, background: c.moneda === "USD" ? "#E6F1FB" : "#FAEEDA", color: c.moneda === "USD" ? "#185FA5" : "#854F0B" }}>
                           {c.moneda}

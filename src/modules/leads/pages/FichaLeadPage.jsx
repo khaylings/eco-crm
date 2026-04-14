@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import UserAvatar from '../../../shared/components/UserAvatar'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../../context/AuthContext'
 import { collection, addDoc, serverTimestamp, getDocs, doc, getDoc, query, where, orderBy, onSnapshot, runTransaction } from 'firebase/firestore'
@@ -622,7 +623,7 @@ export default function FichaLeadPage() {
           {/* Negocio */}
           <Sec colorDot="#3B6D11" titulo="Negocio">
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 14px' }}>
-              <Campo label="Vendedor" value={lead.vendedor} onSave={v => guardarCampo('vendedor',v)} />
+              <div><div style={{ fontSize:9, color:'#8a99b3', fontWeight:600, marginBottom:2 }}>Vendedor</div><div style={{ display:'flex', alignItems:'center', gap:5 }}><UserAvatar nombre={lead.vendedor} uid={lead.vendedorId} size={18} /><Campo label="" value={lead.vendedor} onSave={v => guardarCampo('vendedor',v)} /></div></div>
               <Campo label="Origen" value={lead.origen} onSave={v => guardarCampo('origen',v)} />
               <Campo label="Valor estimado ($)" value={lead.valor} type="number" onSave={v => guardarCampo('valor',v)} />
               <div style={{ marginBottom:2 }}>

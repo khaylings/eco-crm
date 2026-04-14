@@ -33,6 +33,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermisos } from '../../../hooks/usePermisos'
 import ResizableTable from '../../../shared/components/ResizableTable'
+import UserAvatar from '../../../shared/components/UserAvatar'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtUSD = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1231,7 +1232,7 @@ function TabCxC({ facturas, cuentas, onAbono, navigate, tc }) {
                     {cols.totalUSD && <td style={{ ...S.td, fontWeight: 500, color: '#185FA5' }}>{fmtUSD(toUSD_cobrar(f.total, f.moneda, tc))}</td>}
                     {cols.saldoOrig && <td style={{ ...S.td, fontWeight: 600, color: Number(f.saldo) <= 0 ? '#94a3b8' : '#A32D2D' }}>{Number(f.saldo) <= 0 ? '—' : fmt(f.saldo, f.moneda)}</td>}
                     {cols.saldoUSD && <td style={{ ...S.td, fontWeight: 700, color: Number(f.saldo) <= 0 ? '#94a3b8' : '#A32D2D' }}>{Number(f.saldo) <= 0 ? '—' : fmtUSD(toUSD_cobrar(f.saldo, f.moneda, tc))}</td>}
-                    {cols.vendedor && <td style={{ ...S.td, fontSize: 11, color: '#94a3b8' }}>{f.vendedorNombre || '—'}</td>}
+                    {cols.vendedor && <td style={{ ...S.td, fontSize: 11, color: '#94a3b8' }}><div style={{ display:'flex', alignItems:'center', gap:5 }}><UserAvatar nombre={f.vendedorNombre} uid={f.vendedorId} size={18} />{f.vendedorNombre || '—'}</div></td>}
                     <td style={S.td}><Badge label={est} palette={cfg} /></td>
                     <td style={{ ...S.td, fontSize: 12 }}>
                       <span style={{ color: vencida ? '#A32D2D' : proxima ? '#854F0B' : '#666' }}>
