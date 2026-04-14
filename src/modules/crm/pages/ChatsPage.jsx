@@ -155,9 +155,37 @@ export default function ChatsPage() {
     if (!chatActivo) { setMensajes([]); return }
     const col = tipoActivo === 'wa' ? `conversaciones/${chatActivo.id}/mensajes` : `chats_internos/${chatActivo.id}/mensajes`
     const q = query(collection(db, col), orderBy('timestamp', 'asc'))
-    unsubMsgs.current = onSnapshot(q, snap => {
-      setMensajes(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    unsubMsgs.current = onSnapshot(q, async snap => {
+      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setMensajes(msgs)
       setTimeout(() => { if (mensajesRef.current) mensajesRef.current.scrollTop = mensajesRef.current.scrollHeight }, 50)
+      // Procesar media de WhatsApp sin desencriptar
+      if (tipoActivo === 'wa') {
+        for (const msg of msgs) {
+          if (msg.mediaProcesado) continue
+          if (!msg.msgRaw) continue
+          const tipoMedia = msg.tipo || msg.type || ''
+          if (!['image','imagen','audio','video','sticker'].includes(tipoMedia)) continue
+          if (msg.mediaUrl && !msg.mediaUrl.includes('mmg.whatsapp.net')) continue
+          // Desencriptar y subir a Storage
+          try {
+            const { decryptMedia } = await import('../../../services/wasenderService')
+            const result = await decryptMedia(msg.msgRaw)
+            if (result?.data) {
+              const base64 = typeof result.data === 'string' ? result.data : result.data?.base64 || result.data?.url
+              if (base64) {
+                const ext = tipoMedia === 'audio' ? 'ogg' : tipoMedia === 'video' ? 'mp4' : 'jpg'
+                const blob = await fetch(base64.startsWith('data:') ? base64 : `data:application/octet-stream;base64,${base64}`).then(r => r.blob())
+                const st = getStorage()
+                const sRef = storageRef(st, `chat_media/${chatActivo.id}/${msg.id}.${ext}`)
+                await uploadBytes(sRef, blob)
+                const url = await getDownloadURL(sRef)
+                await updateDoc(doc(db, `conversaciones/${chatActivo.id}/mensajes`, msg.id), { mediaUrl: url, mediaProcesado: true })
+              }
+            }
+          } catch (err) { console.error('Error procesando media:', err) }
+        }
+      }
     })
     if (tipoActivo === 'wa' && chatActivo.noLeidos > 0)
       updateDoc(doc(db, 'conversaciones', chatActivo.id), { noLeidos: 0 }).catch(() => {})
@@ -751,8 +779,15 @@ export default function ChatsPage() {
                           const url = msg.mediaUrl && !msg.mediaUrl.includes('mmg.whatsapp.net') ? msg.mediaUrl : thumb
                           return url ? <img src={url} alt="img" style={{ maxWidth:200, maxHeight:200, borderRadius:8, display:'block', cursor:'pointer' }} onClick={()=>setImagenModal(url)} /> : <span style={{ fontSize:'12px', fontStyle:'italic' }}>📷 Imagen</span>
                         })()
-                        :msg.tipo==='audio'||msg.type==='audio'?msg.mediaUrl?<audio controls src={msg.mediaUrl} style={{ maxWidth:220, height:36 }} />:<span style={{ fontSize:'12px', fontStyle:'italic' }}>🎵 Audio</span>
-                        :msg.tipo==='video'||msg.type==='video'?msg.mediaUrl?<video controls src={msg.mediaUrl} style={{ maxWidth:220, borderRadius:8 }} />:<span style={{ fontSize:'12px', fontStyle:'italic' }}>🎬 Video</span>
+                        :msg.tipo==='audio'||msg.type==='audio'?(()=>{
+                          const url = msg.mediaUrl && !msg.mediaUrl.includes('mmg.whatsapp.net') ? msg.mediaUrl : null
+                          return url ? <audio controls src={url} style={{ maxWidth:220, height:36 }} /> : <span style={{ fontSize:'12px', fontStyle:'italic', display:'flex', alignItems:'center', gap:4 }}>🎵 Audio{msg.mediaUrl ? ' (expirado)' : ''}</span>
+                        })()
+                        :msg.tipo==='video'||msg.type==='video'?(()=>{
+                          const thumb = msg.thumbnail ? `data:image/jpeg;base64,${msg.thumbnail}` : null
+                          const url = msg.mediaUrl && !msg.mediaUrl.includes('mmg.whatsapp.net') ? msg.mediaUrl : null
+                          return url ? <video controls src={url} style={{ maxWidth:220, borderRadius:8 }} /> : thumb ? <div style={{ position:'relative', cursor:'pointer' }} onClick={()=>setImagenModal(thumb)}><img src={thumb} alt="video" style={{ maxWidth:200, maxHeight:200, borderRadius:8, display:'block', opacity:0.8 }} /><div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:40, height:40, borderRadius:'50%', background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:18 }}>▶</div></div> : <span style={{ fontSize:'12px', fontStyle:'italic' }}>🎬 Video{msg.mediaUrl ? ' (expirado)' : ''}</span>
+                        })()
                         :msg.tipo==='file'?<a href={msg.mediaUrl} target="_blank" rel="noreferrer" style={{ color:esMio?'#fff':'#185FA5', fontSize:12 }}>📎 {msg.body}</a>
                         :<span>{msg.body}</span>}
                         <div style={{ fontSize:'10px', marginTop:'4px', textAlign:'right', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:3 }}>
