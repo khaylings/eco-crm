@@ -15,6 +15,7 @@ import { useAuth } from '../../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { getAuth } from 'firebase/auth'
+import DOMPurify from 'dompurify'
 
 const SYNC_URL    = 'https://us-central1-eco-crm-da4eb.cloudfunctions.net/sincronizarEmailsManual'
 const IMPORT_URL  = 'https://us-central1-eco-crm-da4eb.cloudfunctions.net/importarEmailsHistoricos'
@@ -303,7 +304,7 @@ function DetalleEmail({ email, onResponder, onVerLead }) {
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: '#fafbfc' }}>
         {email.cuerpoHtml
-          ? <div style={{ background: '#fff', borderRadius: 10, padding: '20px 24px', border: '1px solid #e8ecf0', fontSize: 14, lineHeight: 1.8, color: '#1a1a1a' }} dangerouslySetInnerHTML={{ __html: email.cuerpoHtml }} />
+          ? <div style={{ background: '#fff', borderRadius: 10, padding: '20px 24px', border: '1px solid #e8ecf0', fontSize: 14, lineHeight: 1.8, color: '#1a1a1a' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(email.cuerpoHtml, { ALLOWED_TAGS: ['b','i','em','strong','p','br','div','span','a','ul','ol','li','h1','h2','h3','h4','h5','h6','table','tr','td','th','thead','tbody','img','blockquote','hr','pre','code'], ALLOWED_ATTR: ['href','target','src','alt','style','class','width','height','colspan','rowspan'] }) }} />
           : <div style={{ background: '#fff', borderRadius: 10, padding: '20px 24px', border: '1px solid #e8ecf0', fontSize: 14, lineHeight: 1.8, color: '#1a1a1a', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{email.cuerpoTexto || '(Sin contenido)'}</div>
         }
       </div>

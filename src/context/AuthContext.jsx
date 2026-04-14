@@ -31,10 +31,10 @@ export function AuthProvider({ children }) {
           if (snap.exists()) {
             setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, ...snap.data() })
           } else {
-            setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, nombre: firebaseUser.email, rol: 'Administrador' })
+            setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, nombre: firebaseUser.email, rol: 'Sin acceso' })
           }
         } catch {
-          setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, nombre: firebaseUser.email, rol: 'Administrador' })
+          setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, nombre: firebaseUser.email, rol: 'Sin acceso' })
         }
       } else {
         setUser(null)

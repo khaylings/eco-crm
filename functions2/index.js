@@ -600,17 +600,25 @@ exports.webhookWaSender = onRequest({ cors: true }, async (req, res) => {
 
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed')
 
-  // ── Verificar secret (query param o header) ──
+  // ── Verificar secret (comparación segura contra timing attacks) ──
   const secret = req.query.secret || req.headers['x-webhook-secret'] || ''
   const expectedSecret = process.env.WASENDER_WEBHOOK_SECRET
-  if (expectedSecret && secret !== expectedSecret) {
-    console.warn('Webhook WaSender: secret inválido')
-    return res.status(401).json({ error: 'Unauthorized' })
+  if (expectedSecret) {
+    try {
+      const a = Buffer.from(secret)
+      const b = Buffer.from(expectedSecret)
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        console.warn('Webhook WaSender: secret inválido')
+        return res.status(401).json({ error: 'Unauthorized' })
+      }
+    } catch {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
   }
 
   try {
     const payload = req.body
-    console.log('Webhook WaSender payload:', JSON.stringify(payload).slice(0, 500))
+    console.log('Webhook WaSender: evento recibido:', payload.event || 'unknown')
 
     // ── Extraer datos del mensaje ──
     // WaSender envía diferentes formatos según el evento
@@ -764,7 +772,7 @@ exports.webhookWaSender = onRequest({ cors: true }, async (req, res) => {
 
   } catch (err) {
     console.error('Error webhook WaSender:', err)
-    return res.status(500).json({ error: err.message })
+    return res.status(500).json({ error: 'Error interno del servidor' })
   }
 })
 

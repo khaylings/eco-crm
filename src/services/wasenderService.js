@@ -64,8 +64,6 @@ export const getContacts = async () => {
 };
 
 export const decryptMedia = async (msgRaw) => {
-  console.log('DECRYPT URL:', DECRYPT_URL);
-  console.log('DECRYPT PAYLOAD:', JSON.stringify({ msgRaw, sessionToken: SESSION_TOKEN }));
   const res = await fetch(`${DECRYPT_URL}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -74,7 +72,5 @@ export const decryptMedia = async (msgRaw) => {
       sessionToken: SESSION_TOKEN,
     }),
   });
-  const data = await res.json();
-  console.log('DECRYPT RESPONSE:', data);
-  return data;
+  return res.json();
 };
