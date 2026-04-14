@@ -23,6 +23,81 @@ import { crearNotificacion } from '../../../services/notificaciones'
 import UserAvatar from '../../../shared/components/UserAvatar'
 import { WASENDER_URL, WASENDER_TOKEN, NUDGE_IMG_URL, ETIQUETAS, ORIGENES, ROLES_SUPERVISOR, ROLES_RESUMEN_IA } from './chats/constants'
 
+function AudioWaveform({ pct, barFill, barBg }) {
+  const bars = [3,5,8,4,7,10,6,9,4,7,11,5,8,3,6,9,5,7,4,8,10,6,3,7,5,9]
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:1.5, height:28, flex:1 }}>
+      {bars.map((h, i) => {
+        const filled = (i / bars.length) * 100 < pct
+        return <div key={i} style={{ width:3, height:h*2.2, borderRadius:2, background:filled ? barFill : barBg, transition:'background .1s' }} />
+      })}
+    </div>
+  )
+}
+
+function AudioPlayer({ src, esMio }) {
+  const audioRef = useRef(null)
+  const [playing, setPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [speed, setSpeed] = useState(1)
+
+  const fmt = (s) => {
+    if (!s || isNaN(s)) return '0:00'
+    const m = Math.floor(s / 60)
+    const sec = Math.floor(s % 60)
+    return `${m}:${sec < 10 ? '0' : ''}${sec}`
+  }
+
+  const togglePlay = () => {
+    if (!audioRef.current) return
+    if (playing) { audioRef.current.pause() } else { audioRef.current.play() }
+    setPlaying(!playing)
+  }
+
+  const toggleSpeed = () => {
+    const speeds = [1, 1.5, 2]
+    const next = speeds[(speeds.indexOf(speed) + 1) % speeds.length]
+    setSpeed(next)
+    if (audioRef.current) audioRef.current.playbackRate = next
+  }
+
+  const onSeek = (e) => {
+    if (!audioRef.current || !duration) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    audioRef.current.currentTime = pct * duration
+  }
+
+  const pct = duration ? (currentTime / duration) * 100 : 0
+  const barBg = esMio ? 'rgba(255,255,255,.25)' : '#d0d8e4'
+  const barFill = esMio ? '#fff' : '#185FA5'
+  const textColor = esMio ? 'rgba(255,255,255,.7)' : '#888'
+
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, width:195, padding:'4px 0' }}>
+      <audio ref={audioRef} src={src} preload="metadata"
+        onLoadedMetadata={e => setDuration(e.target.duration)}
+        onTimeUpdate={e => setCurrentTime(e.target.currentTime)}
+        onEnded={() => setPlaying(false)} />
+      <button onClick={togglePlay} style={{ width:36, height:36, borderRadius:'50%', border:'none', background:barFill, color:esMio?'#1a3a5c':'#fff', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontFamily:'inherit', boxShadow:'0 1px 4px rgba(0,0,0,.15)' }}>
+        {playing ? '❚❚' : '▶'}
+      </button>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', gap:3, minWidth:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:2 }}>
+          <div onClick={onSeek} style={{ cursor:'pointer', flex:1 }}>
+            <AudioWaveform pct={pct} barFill={barFill} barBg={barBg} />
+          </div>
+          <button onClick={toggleSpeed} style={{ fontSize:9, fontWeight:700, border:'none', background:esMio?'rgba(255,255,255,.2)':'#eef1f6', color:barFill, cursor:'pointer', padding:'2px 5px', borderRadius:6, fontFamily:'inherit', lineHeight:1.3, flexShrink:0 }}>
+            x{speed}
+          </button>
+        </div>
+        <span style={{ fontSize:10, color:textColor, fontFamily:'inherit', fontWeight:500 }}>{playing ? fmt(currentTime) : fmt(duration)}</span>
+      </div>
+    </div>
+  )
+}
+
 function IndicadorLectura({ chatId, miembros, gruposInternos, usuarios, usuarioActualUid, mensajes }) {
   const chatData = gruposInternos.find(g => g.id === chatId)
   const otros = (miembros || []).filter(uid => uid !== usuarioActualUid)
@@ -923,7 +998,15 @@ export default function ChatsPage() {
                     {!esMio&&tipoActivo==='interno'&&<Avatar nombre={msg.autorNombre||'?'} foto={msg.autorFoto} size={24} />}
                     <div style={{ maxWidth:'65%' }}>
                       {!esMio&&tipoActivo==='interno'&&<div style={{ fontSize:10, color:colorFromString(msg.autorNombre||''), fontWeight:600, marginBottom:2, paddingLeft:4 }}>{msg.autorNombre}</div>}
-                      <div style={{ padding:'9px 13px', borderRadius:esMio?'14px 14px 3px 14px':'14px 14px 14px 3px', background:esNota?'#FAEEDA':esMio?(tipoActivo==='interno'?'#0F6E56':'#1a3a5c'):'#fff', color:esNota?'#854F0B':esMio?'#fff':'#1a1a1a', fontSize:'13px', lineHeight:'1.55', boxShadow:'0 1px 2px rgba(0,0,0,0.06)', border:esNota?'1px dashed #EF9F27':'none' }}>
+                      <div style={{ padding:'9px 13px', borderRadius:esMio?'14px 14px 3px 14px':'14px 14px 14px 3px', background:esNota?'#FAEEDA':esMio?(tipoActivo==='interno'?'#0F6E56':'#1a3a5c'):'#fff', color:esNota?'#854F0B':esMio?'#fff':'#1a1a1a', fontSize:'13px', lineHeight:'1.55', boxShadow:'0 1px 2px rgba(0,0,0,0.06)', border:esNota?'1px dashed #EF9F27':'none', position:'relative' }}>
+                        <div className="msg-actions" style={{ opacity:0, transition:'opacity .15s', position:'absolute', top:4, right:4, zIndex:10 }}>
+                          <button onClick={e=>{e.stopPropagation();const menu=e.currentTarget.nextElementSibling;menu.style.display=menu.style.display==='flex'?'none':'flex'}} style={{ background:esMio?'rgba(0,0,0,.15)':'rgba(0,0,0,.05)', border:'none', cursor:'pointer', padding:'1px 4px', fontSize:11, color:esMio?'rgba(255,255,255,.8)':'#999', lineHeight:1, borderRadius:4 }}>⌵</button>
+                          <div style={{ display:'none', position:'absolute', top:'100%', right:0, background:'#fff', borderRadius:8, boxShadow:'0 4px 16px rgba(0,0,0,.15)', zIndex:100, flexDirection:'column', overflow:'hidden', minWidth:120 }}
+                            onMouseLeave={e=>e.currentTarget.style.display='none'}>
+                            <button onClick={()=>{setRespondiendo(msg);inputRef.current?.focus()}} style={{ background:'none', border:'none', cursor:'pointer', padding:'8px 14px', fontSize:12, color:'#333', fontFamily:'inherit', textAlign:'left', display:'flex', alignItems:'center', gap:6 }} onMouseEnter={e=>e.currentTarget.style.background='#f5f6f8'} onMouseLeave={e=>e.currentTarget.style.background='none'}>↩ Responder</button>
+                            <button onClick={()=>{setReenviando(msg);setShowReenviar(true)}} style={{ background:'none', border:'none', cursor:'pointer', padding:'8px 14px', fontSize:12, color:'#333', fontFamily:'inherit', textAlign:'left', display:'flex', alignItems:'center', gap:6 }} onMouseEnter={e=>e.currentTarget.style.background='#f5f6f8'} onMouseLeave={e=>e.currentTarget.style.background='none'}>↪ Reenviar</button>
+                          </div>
+                        </div>
                         {esNota&&<div style={{ fontSize:10, fontWeight:700, marginBottom:3, opacity:0.8 }}>📝 Nota interna</div>}
                         {msg.reenviado&&<div style={{ fontSize:10, color:esMio?'rgba(255,255,255,0.7)':'#888', marginBottom:3 }}>↪ Reenviado</div>}
                         {msg.respondiendo&&(
@@ -940,12 +1023,12 @@ export default function ChatsPage() {
                         })()
                         :msg.tipo==='audio'||msg.type==='audio'?(()=>{
                           const url = msg.mediaUrl && !msg.mediaUrl.includes('mmg.whatsapp.net') ? msg.mediaUrl : null
-                          return url ? <audio controls src={url} style={{ maxWidth:220, height:36 }} /> : <span style={{ fontSize:'12px', fontStyle:'italic', display:'flex', alignItems:'center', gap:4 }}>🎵 Audio{msg.mediaUrl ? ' (expirado)' : ''}</span>
+                          return url ? <AudioPlayer src={url} esMio={esMio} /> : <span style={{ fontSize:'12px', fontStyle:'italic', display:'flex', alignItems:'center', gap:4 }}>🎵 Audio{msg.mediaUrl ? ' (expirado)' : ''}</span>
                         })()
                         :msg.tipo==='video'||msg.type==='video'?(()=>{
                           const thumb = msg.thumbnail ? `data:image/jpeg;base64,${msg.thumbnail}` : null
                           const url = msg.mediaUrl && !msg.mediaUrl.includes('mmg.whatsapp.net') ? msg.mediaUrl : null
-                          return url ? <video controls src={url} style={{ maxWidth:220, borderRadius:8 }} /> : thumb ? <div style={{ position:'relative', cursor:'pointer' }} onClick={()=>setImagenModal(thumb)}><img src={thumb} alt="video" style={{ maxWidth:200, maxHeight:200, borderRadius:8, display:'block', opacity:0.8 }} /><div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:40, height:40, borderRadius:'50%', background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:18 }}>▶</div></div> : <span style={{ fontSize:'12px', fontStyle:'italic' }}>🎬 Video{msg.mediaUrl ? ' (expirado)' : ''}</span>
+                          return url ? <video controls src={url} style={{ maxWidth:180, borderRadius:8, display:'block' }} /> : thumb ? <div style={{ position:'relative', cursor:'pointer' }} onClick={()=>setImagenModal(thumb)}><img src={thumb} alt="video" style={{ maxWidth:200, maxHeight:200, borderRadius:8, display:'block', opacity:0.8 }} /><div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:40, height:40, borderRadius:'50%', background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:18 }}>▶</div></div> : <span style={{ fontSize:'12px', fontStyle:'italic' }}>🎬 Video{msg.mediaUrl ? ' (expirado)' : ''}</span>
                         })()
                         :msg.tipo==='file'?<a href={msg.mediaUrl} target="_blank" rel="noreferrer" style={{ color:esMio?'#fff':'#185FA5', fontSize:12 }}>📎 {msg.body}</a>
                         :<span>{msg.body}</span>}
@@ -955,10 +1038,6 @@ export default function ChatsPage() {
                           {esMio&&tipoActivo==='wa'&&<span style={{ fontSize:14, lineHeight:1, fontWeight:600 }}>{msg.leido===true?<span style={{ color:'#4FC3F7' }}>✓✓</span>:msg.timestamp?<span style={{ color:'rgba(255,255,255,0.75)' }}>✓✓</span>:<span style={{ color:'rgba(255,255,255,0.45)' }}>✓</span>}</span>}
                         </div>
                       </div>
-                    </div>
-                    <div className="msg-actions" style={{ opacity:0, transition:'opacity .15s', display:'flex', flexDirection:'column', gap:4, alignSelf:'center', order:esMio?-1:1 }}>
-                      <button onClick={()=>{setRespondiendo(msg);inputRef.current?.focus()}} style={{ background:'rgba(0,0,0,.08)', border:'none', borderRadius:6, cursor:'pointer', padding:'4px 8px', display:'flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, color:'#555', fontFamily:'inherit', whiteSpace:'nowrap' }}>↩ Responder</button>
-                      <button onClick={()=>{setReenviando(msg);setShowReenviar(true)}} style={{ background:'rgba(0,0,0,.08)', border:'none', borderRadius:6, cursor:'pointer', padding:'4px 8px', display:'flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, color:'#555', fontFamily:'inherit', whiteSpace:'nowrap' }}>↪ Reenviar</button>
                     </div>
                   </div>
                 )
