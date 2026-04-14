@@ -477,6 +477,19 @@ exports.recibirEmail = onRequest({ cors: true }, async (req, res) => {
   }
 })
 
+// ─── Auto-fix: convertir Firestore Timestamp a epoch seconds en mensajes ─────
+const { onDocumentCreated } = require('firebase-functions/v2/firestore')
+
+exports.fixTimestampMensaje = onDocumentCreated('conversaciones/{convId}/mensajes/{msgId}', async (event) => {
+  const data = event.data?.data()
+  if (!data?.timestamp) return
+  // Si es Firestore Timestamp (tiene toDate), convertir a epoch seconds
+  if (data.timestamp.toDate) {
+    const epoch = Math.floor(data.timestamp.toDate().getTime() / 1000)
+    await event.data.ref.update({ timestamp: epoch })
+  }
+})
+
 // ─── Polling automático cada 5 minutos ───────────────────────────────────────
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const fetch2 = require('node-fetch')

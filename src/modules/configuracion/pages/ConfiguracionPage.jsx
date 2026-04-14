@@ -1873,6 +1873,183 @@ function PaginaCelebraciones() {
   )
 }
 
+// ─── ANUNCIOS ─────────────────────────────────────────────────────────────────
+function PaginaAnuncios() {
+  const authCtx = useAuth()
+  const yo = authCtx.usuario || authCtx.currentUser || null
+  const esSuperAdmin = yo?.rol === 'Super Administrador'
+
+  const [anuncios, setAnuncios] = useState([])
+  const [titulo, setTitulo] = useState('')
+  const [mensaje, setMensaje] = useState('')
+  const [version, setVersion] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [mejorando, setMejorando] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    const q = query(collection(db, 'anuncios'), orderBy('creadoEn', 'desc'))
+    return onSnapshot(q, snap => setAnuncios(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+  }, [])
+
+  const mejorarConIA = async () => {
+    if (!mensaje.trim()) return
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY
+    if (!geminiKey) { setMsg('⚠️ Falta VITE_GEMINI_API_KEY'); return }
+    setMejorando(true)
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: `Sos el community manager de un CRM empresarial. Mejorá este anuncio de actualización para los usuarios del sistema. Hacelo profesional, claro, amigable y conciso. Usá emojis con moderación. Mantené el español. Solo devolvé el texto mejorado, sin explicaciones.\n\nTítulo: ${titulo}\nMensaje original:\n${mensaje}` }] }],
+            generationConfig: { maxOutputTokens: 512, temperature: 0.7 },
+          }),
+        }
+      )
+      const data = await res.json()
+      const texto = data.candidates?.[0]?.content?.parts?.[0]?.text
+      if (texto) setMensaje(texto)
+    } catch (e) {
+      setMsg('Error al conectar con IA')
+    } finally {
+      setMejorando(false)
+    }
+  }
+
+  const publicar = async () => {
+    if (!titulo.trim() || !mensaje.trim()) { setMsg('Título y mensaje son obligatorios'); return }
+    setGuardando(true)
+    try {
+      await addDoc(collection(db, 'anuncios'), {
+        titulo: titulo.trim(),
+        mensaje: mensaje.trim(),
+        version: version.trim() || null,
+        autorId: yo?.uid,
+        autorNombre: yo?.nombre || yo?.email || 'Administrador',
+        autorFoto: yo?.fotoURL || null,
+        activo: true,
+        leidoPor: [],
+        creadoEn: serverTimestamp(),
+      })
+      setTitulo(''); setMensaje(''); setVersion('')
+      setMsg('✓ Anuncio publicado — lo verán todos al entrar')
+      setTimeout(() => setMsg(''), 3000)
+    } catch (e) {
+      setMsg('Error al publicar')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  const desactivar = async (id) => {
+    await updateDoc(doc(db, 'anuncios', id), { activo: false })
+  }
+
+  const reactivar = async (id) => {
+    await updateDoc(doc(db, 'anuncios', id), { activo: true, leidoPor: [] })
+  }
+
+  const eliminar = async (id) => {
+    if (!confirm('¿Eliminar este anuncio?')) return
+    await deleteDoc(doc(db, 'anuncios', id))
+  }
+
+  if (!esSuperAdmin) return (
+    <div style={{ padding: '40px 28px', textAlign: 'center', color: '#888' }}>
+      <div style={{ fontSize: 36, marginBottom: 10 }}>🔒</div>
+      <div style={{ fontSize: 14 }}>Solo el Super Administrador puede gestionar anuncios.</div>
+    </div>
+  )
+
+  return (
+    <div style={{ padding: '24px 28px', overflowY: 'auto', flex: 1 }}>
+      <SubTitle>📢 Anuncios del sistema</SubTitle>
+      <p style={{ fontSize: 13, color: '#666', marginBottom: 20 }}>Publicá anuncios que se mostrarán a todos los usuarios al entrar al CRM.</p>
+
+      {/* Formulario */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e0e8e0', padding: 20, marginBottom: 24 }}>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }}>Título *</label>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej: Nueva funcionalidad de reportes" style={iSt} />
+          </div>
+          <div style={{ width: 120 }}>
+            <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }}>Versión</label>
+            <input value={version} onChange={e => setVersion(e.target.value)} placeholder="Ej: 2.1" style={iSt} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px' }}>Mensaje *</label>
+            <button onClick={mejorarConIA} disabled={mejorando || !mensaje.trim()} style={{ fontSize: 11, border: 'none', background: mejorando ? '#eee' : '#EEF3FA', color: mejorando ? '#aaa' : '#185FA5', cursor: mejorando ? 'not-allowed' : 'pointer', padding: '3px 10px', borderRadius: 6, fontWeight: 600, fontFamily: 'inherit' }}>
+              {mejorando ? '⟳ Mejorando...' : '✨ Mejorar con IA'}
+            </button>
+          </div>
+          <textarea value={mensaje} onChange={e => setMensaje(e.target.value)} rows={5} placeholder="Escribí el anuncio... La IA te ayudará a mejorarlo" style={{ ...iSt, resize: 'vertical', lineHeight: 1.7 }} />
+        </div>
+
+        {/* Preview */}
+        {(titulo || mensaje) && (
+          <div style={{ background: '#f8f9fb', borderRadius: 10, padding: 16, marginBottom: 14, border: '1px dashed #d0d8e0' }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 8 }}>Vista previa del modal</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              {yo?.fotoURL
+                ? <img src={yo.fotoURL} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} />
+                : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#185FA5', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{(yo?.nombre || '?')[0]?.toUpperCase()}</div>
+              }
+              <div>
+                <div style={{ fontSize: 10, color: '#aaa' }}>Anuncio de</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>{yo?.nombre || 'Administrador'}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1a3a5c', marginBottom: 6 }}>{titulo || 'Título del anuncio'}</div>
+            <div style={{ fontSize: 13, color: '#444', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{mensaje || 'Mensaje del anuncio...'}</div>
+            {version && <div style={{ fontSize: 10, color: '#bbb', marginTop: 8 }}>Versión {version}</div>}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button onClick={publicar} disabled={guardando || !titulo.trim() || !mensaje.trim()} style={{ padding: '8px 24px', borderRadius: 8, border: 'none', background: guardando ? '#ccc' : '#185FA5', color: '#fff', fontSize: 13, fontWeight: 600, cursor: guardando ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+            {guardando ? 'Publicando...' : '📢 Publicar anuncio'}
+          </button>
+          {msg && <span style={{ fontSize: 12, color: msg.startsWith('✓') ? '#3B6D11' : '#A32D2D', fontWeight: 500 }}>{msg}</span>}
+        </div>
+      </div>
+
+      {/* Historial */}
+      <SubTitle>Historial de anuncios</SubTitle>
+      {anuncios.length === 0 && <p style={{ fontSize: 13, color: '#aaa' }}>No hay anuncios publicados.</p>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {anuncios.map(a => (
+          <div key={a.id} style={{ background: '#fff', borderRadius: 10, border: '1px solid #e0e8e0', padding: '14px 18px', opacity: a.activo === false ? 0.5 : 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>{a.titulo}</div>
+                <div style={{ fontSize: 11, color: '#aaa' }}>
+                  {a.autorNombre} · {a.creadoEn?.toDate ? a.creadoEn.toDate().toLocaleDateString('es-CR', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                  {a.version && ` · v${a.version}`}
+                  {' · '}{(a.leidoPor || []).length} leídos
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {a.activo !== false
+                  ? <button onClick={() => desactivar(a.id)} style={{ fontSize: 10, border: '1px solid #eee', background: '#fff', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', color: '#888', fontFamily: 'inherit' }}>Desactivar</button>
+                  : <button onClick={() => reactivar(a.id)} style={{ fontSize: 10, border: '1px solid #185FA5', background: '#EEF3FA', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', color: '#185FA5', fontFamily: 'inherit' }}>Reactivar</button>
+                }
+                <button onClick={() => eliminar(a.id)} style={{ fontSize: 10, border: '1px solid #f09595', background: '#FCEBEB', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', color: '#A32D2D', fontFamily: 'inherit' }}>Eliminar</button>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: '#555', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{a.mensaje?.slice(0, 200)}{a.mensaje?.length > 200 ? '...' : ''}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── EMPLEADOS ────────────────────────────────────────────────────────────────
 function PaginaEmpleados() {
   const authCtx = useAuth()

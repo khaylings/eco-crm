@@ -11,7 +11,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   collection, query, orderBy, onSnapshot, doc,
-  updateDoc, addDoc, serverTimestamp, getDocs, where, getDoc
+  updateDoc, addDoc, deleteDoc, serverTimestamp, getDocs, where, getDoc
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
@@ -391,6 +391,7 @@ export default function ChatWidget({ onSonido }) {
                   { key: 'chats',        label: '📱 WA',       badge: noLeidosWA },
                   { key: 'internos',     label: '💬 Internos', badge: noLeidosInt },
                   { key: 'solicitudes',  label: '🐛 Soporte',  badge: pendientesSolicitudes },
+                  ...(usuario?.rol === 'Super Administrador' ? [{ key: 'anuncios', label: '📢 Anuncios', badge: 0 }] : []),
                 ].map(t => (
                   <button key={t.key} onClick={() => setTab(t.key)}
                     style={{ flex: 1, padding: '5px 4px', border: 'none', fontSize: 11, fontWeight: 600, borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', position: 'relative',
@@ -404,7 +405,7 @@ export default function ChatWidget({ onSonido }) {
               </div>
 
               {/* Buscador — oculto en tab Solicitudes */}
-              {tab !== 'solicitudes' && (
+              {tab !== 'solicitudes' && tab !== 'anuncios' && (
                 <div style={{ position: 'relative' }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
                     <circle cx="11" cy="11" r="8" stroke="#bbb" strokeWidth="2"/><path d="M21 21l-4.35-4.35" stroke="#bbb" strokeWidth="2" strokeLinecap="round"/>
@@ -416,7 +417,11 @@ export default function ChatWidget({ onSonido }) {
             </div>
 
             {/* Contenido — conversaciones o tab Solicitudes */}
-            {tab === 'solicitudes' ? (
+            {tab === 'anuncios' ? (
+              <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <TabAnuncios usuario={usuario} />
+              </div>
+            ) : tab === 'solicitudes' ? (
               <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 <TabSolicitudes onPendientesChange={setPendientesSolicitudes} />
               </div>
@@ -495,5 +500,154 @@ export default function ChatWidget({ onSonido }) {
         </button>
       </div>
     </>
+  )
+}
+
+// ─── Tab Anuncios (solo Super Admin) ─────────────────────────────────────────
+function TabAnuncios({ usuario }) {
+  const [anuncios, setAnuncios] = useState([])
+  const [mensaje, setMensaje] = useState('')
+  const [version, setVersion] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [mejorando, setMejorando] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [vista, setVista] = useState('form') // 'form' | 'historial'
+
+  useEffect(() => {
+    const q = query(collection(db, 'anuncios'), orderBy('creadoEn', 'desc'))
+    return onSnapshot(q, snap => setAnuncios(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+  }, [])
+
+  const mejorarConIA = async () => {
+    if (!mensaje.trim()) return
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY
+    if (!geminiKey) { setMsg('⚠️ Falta VITE_GEMINI_API_KEY'); return }
+    setMejorando(true)
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: `Reescribí este texto como un anuncio interno para el equipo de trabajo que usa un CRM.
+
+Texto original:
+${mensaje}
+
+Instrucciones estrictas:
+- Escribí en español latinoamericano, tuteando
+- SIEMPRE incluí 2-3 emojis relevantes en el texto (al inicio de párrafos o ideas clave)
+- Empezá directo con lo que se hizo, sin saludos ni "Hemos implementado"
+- Explicá el beneficio concreto para el usuario en palabras simples
+- Usá un tono cercano como si le hablaras a un compañero de trabajo
+- Máximo 4-5 líneas
+- Devolvé ÚNICAMENTE el texto reescrito, sin comillas, sin explicaciones, sin "Aquí tienes"` }] }],
+            generationConfig: { maxOutputTokens: 1024, temperature: 0.5 },
+          }),
+        }
+      )
+      const data = await res.json()
+      const texto = data.candidates?.[0]?.content?.parts?.[0]?.text
+      if (texto) setMensaje(texto.trim())
+    } catch { setMsg('Error al conectar con IA') }
+    finally { setMejorando(false) }
+  }
+
+  const publicar = async () => {
+    if (!mensaje.trim()) { setMsg('El mensaje es obligatorio'); return }
+    setGuardando(true)
+    try {
+      const tituloFijo = version.trim() ? `🚀 Equipo, nueva actualización v${version.trim()}` : '🚀 Equipo, nueva actualización'
+      await addDoc(collection(db, 'anuncios'), {
+        titulo: tituloFijo, mensaje: mensaje.trim(), version: version.trim() || null,
+        autorId: usuario?.uid, autorNombre: usuario?.nombre || usuario?.email || 'Admin',
+        autorFoto: usuario?.fotoURL || null, activo: true, leidoPor: [], creadoEn: serverTimestamp(),
+      })
+      setMensaje(''); setVersion('')
+      setMsg('✓ Publicado'); setTimeout(() => setMsg(''), 2500)
+    } catch { setMsg('Error al publicar') }
+    finally { setGuardando(false) }
+  }
+
+  const desactivar = async (id) => await updateDoc(doc(db, 'anuncios', id), { activo: false })
+  const reactivar = async (id) => await updateDoc(doc(db, 'anuncios', id), { activo: true, leidoPor: [] })
+  const eliminar = async (id) => { if (confirm('¿Eliminar anuncio?')) await deleteDoc(doc(db, 'anuncios', id)) }
+
+  const inp = { width: '100%', padding: '6px 8px', border: '1px solid #e0e0e0', borderRadius: 6, fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Tabs internas */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #eee', flexShrink: 0 }}>
+        {[{ key: 'form', label: '+ Nuevo' }, { key: 'historial', label: `Historial (${anuncios.length})` }].map(t => (
+          <button key={t.key} onClick={() => setVista(t.key)} style={{ flex: 1, padding: '8px 0', border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: vista === t.key ? '#fff' : '#f5f6f8', color: vista === t.key ? '#185FA5' : '#888', borderBottom: vista === t.key ? '2px solid #185FA5' : '2px solid transparent' }}>{t.label}</button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
+        {vista === 'form' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 9, fontWeight: 600, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 3 }}>Versión (opcional)</label>
+              <input value={version} onChange={e => setVersion(e.target.value)} placeholder="Ej: 2.1" style={inp} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                <label style={{ fontSize: 9, fontWeight: 600, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.5px' }}>Mensaje *</label>
+                <button onClick={mejorarConIA} disabled={mejorando || !mensaje.trim()} style={{ fontSize: 10, border: 'none', background: mejorando ? '#eee' : '#EEF3FA', color: mejorando ? '#aaa' : '#185FA5', cursor: mejorando ? 'not-allowed' : 'pointer', padding: '2px 8px', borderRadius: 5, fontWeight: 600, fontFamily: 'inherit' }}>
+                  {mejorando ? '⟳ ...' : '✨ IA'}
+                </button>
+              </div>
+              <textarea value={mensaje} onChange={e => setMensaje(e.target.value)} rows={4} placeholder="Escribí el anuncio..." style={{ ...inp, resize: 'vertical', lineHeight: 1.6 }} />
+            </div>
+
+            {/* Preview mini */}
+            {mensaje && (
+              <div style={{ background: '#f8f9fb', borderRadius: 8, padding: 10, border: '1px dashed #d0d8e0' }}>
+                <div style={{ fontSize: 9, fontWeight: 600, color: '#aaa', textTransform: 'uppercase', marginBottom: 6 }}>Preview</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  {usuario?.fotoURL
+                    ? <img src={usuario.fotoURL} alt="" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }} />
+                    : <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#185FA5', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{(usuario?.nombre || '?')[0]?.toUpperCase()}</div>
+                  }
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#1a1a1a' }}>{usuario?.nombre || 'Admin'}</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#555', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{mensaje?.slice(0, 200)}{mensaje?.length > 200 ? '...' : ''}</div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button onClick={publicar} disabled={guardando || !mensaje.trim()} style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: guardando ? '#ccc' : '#185FA5', color: '#fff', fontSize: 12, fontWeight: 600, cursor: guardando ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+                {guardando ? '...' : '📢 Publicar'}
+              </button>
+              {msg && <span style={{ fontSize: 11, color: msg.startsWith('✓') ? '#3B6D11' : '#A32D2D', fontWeight: 500 }}>{msg}</span>}
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {anuncios.length === 0 && <div style={{ fontSize: 12, color: '#aaa', textAlign: 'center', padding: 20 }}>Sin anuncios</div>}
+            {anuncios.map(a => (
+              <div key={a.id} style={{ background: '#fff', borderRadius: 8, border: '1px solid #eee', padding: '10px 12px', opacity: a.activo === false ? 0.5 : 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a1a' }}>{a.titulo}</div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {a.activo !== false
+                      ? <button onClick={() => desactivar(a.id)} style={{ fontSize: 9, border: 'none', background: '#f5f6f8', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', color: '#888', fontFamily: 'inherit' }}>Off</button>
+                      : <button onClick={() => reactivar(a.id)} style={{ fontSize: 9, border: 'none', background: '#EEF3FA', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', color: '#185FA5', fontFamily: 'inherit' }}>On</button>
+                    }
+                    <button onClick={() => eliminar(a.id)} style={{ fontSize: 9, border: 'none', background: '#FCEBEB', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', color: '#A32D2D', fontFamily: 'inherit' }}>✕</button>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: '#888', marginBottom: 3 }}>
+                  {a.creadoEn?.toDate ? a.creadoEn.toDate().toLocaleDateString('es-CR', { day: '2-digit', month: 'short' }) : ''} · {(a.leidoPor || []).length} leídos
+                </div>
+                <div style={{ fontSize: 11, color: '#555', lineHeight: 1.5 }}>{a.mensaje?.slice(0, 100)}{a.mensaje?.length > 100 ? '...' : ''}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

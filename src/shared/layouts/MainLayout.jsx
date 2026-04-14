@@ -21,6 +21,7 @@ import { usePermisos } from '../../hooks/usePermisos'
 import BotAyuda from './BotAyuda'
 import ChatWidget from './ChatWidget'
 import SalesBombModal from '../components/SalesBombModal'
+import AnuncioModal from '../components/AnuncioModal'
 
 // ── Cambio 1: agregar Email al nav horizontal ─────────────────────────────────
 const NAV_ITEMS_BASE = [
@@ -852,6 +853,7 @@ export default function MainLayout() {
 
       <ChatWidget onSonido={reproducirSonido} />
       <SalesBombModal usuario={usuario} />
+      <AnuncioModal />
       {botOpen  && <BotAyuda onCerrar={() => setBotOpen(false)} />}
       {gridOpen && <MenuGrid onClose={() => setGridOpen(false)} onNavigate={navigate} modulosGrid={modulosGrid} />}
       <main style={{ flex: 1, overflowY: 'auto' }}><Outlet /></main>

@@ -478,7 +478,7 @@ export default function ChatsPage() {
       const res = await fetch(`${WASENDER_URL}/send-message`, { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${WASENDER_TOKEN}`}, body:JSON.stringify({ to:`+${telefono}`, text:texto }) })
       const data = await res.json()
       if (data?.success !== false) {
-        await addDoc(collection(db, `conversaciones/${chatActivo.id}/mensajes`), { body:texto, fromMe:true, tipo:'texto', timestamp:serverTimestamp(), autorNombre:usuarioActual?.nombre||usuarioActual?.email||'Agente', autorFoto:usuarioActual?.fotoURL||null, ...(respondiendo?{respondiendo:{id:respondiendo.id,body:respondiendo.body,autorNombre:respondiendo.fromMe?(usuarioActual?.nombre||'Agente'):chatActivo.nombre}}:{}) })
+        await addDoc(collection(db, `conversaciones/${chatActivo.id}/mensajes`), { body:texto, fromMe:true, tipo:'texto', timestamp:Math.floor(Date.now()/1000), autorNombre:usuarioActual?.nombre||usuarioActual?.email||'Agente', autorFoto:usuarioActual?.fotoURL||null, ...(respondiendo?{respondiendo:{id:respondiendo.id,body:respondiendo.body,autorNombre:respondiendo.fromMe?(usuarioActual?.nombre||'Agente'):chatActivo.nombre}}:{}) })
         setRespondiendo(null)
         await updateDoc(doc(db, 'conversaciones', chatActivo.id), { ultimoMensaje:texto, timestamp:Math.floor(Date.now()/1000) })
       }
@@ -489,7 +489,7 @@ export default function ChatsPage() {
     if (!mensaje.trim() || !chatActivo || enviando) return
     setEnviando(true); const texto = mensaje.trim(); setMensaje('')
     try {
-      await addDoc(collection(db, `conversaciones/${chatActivo.id}/mensajes`), { body:texto, fromMe:true, tipo:'nota_interna', timestamp:serverTimestamp(), autorNombre:usuarioActual?.nombre||usuarioActual?.email||'Agente', autorFoto:usuarioActual?.fotoURL||null })
+      await addDoc(collection(db, `conversaciones/${chatActivo.id}/mensajes`), { body:texto, fromMe:true, tipo:'nota_interna', timestamp:Math.floor(Date.now()/1000), autorNombre:usuarioActual?.nombre||usuarioActual?.email||'Agente', autorFoto:usuarioActual?.fotoURL||null })
     } catch(e) { console.error(e) } finally { setEnviando(false) }
   }
 
