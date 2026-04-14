@@ -1404,10 +1404,13 @@ export default function ChatsPage() {
       )}
 
       {imagenModal&&(
-        <div onClick={()=>setImagenModal(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out' }}>
-          <div onClick={e=>e.stopPropagation()} style={{ position:'relative', maxWidth:'90vw', maxHeight:'90vh' }}>
-            <img src={imagenModal} alt="img" style={{ maxWidth:'90vw', maxHeight:'90vh', objectFit:'contain', borderRadius:10, display:'block', boxShadow:'0 8px 40px rgba(0,0,0,.5)' }} />
-            <button onClick={()=>setImagenModal(null)} style={{ position:'absolute', top:-14, right:-14, width:32, height:32, borderRadius:'50%', background:'#fff', border:'none', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.3)', color:'#333' }}>×</button>
+        <div onClick={()=>setImagenModal(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.88)', zIndex:9999, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+            <img src={imagenModal} alt="img" style={{ width:1000, maxWidth:'95vw', maxHeight:'90vh', height:'auto', objectFit:'contain', borderRadius:12, display:'block', boxShadow:'0 8px 40px rgba(0,0,0,.5)' }} />
+            <div style={{ display:'flex', gap:10, marginTop:12 }}>
+              <a href={imagenModal} download target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ padding:'6px 16px', borderRadius:8, background:'#fff', color:'#333', fontSize:13, fontWeight:500, textDecoration:'none' }}>⬇ Descargar</a>
+              <button onClick={()=>setImagenModal(null)} style={{ padding:'6px 16px', borderRadius:8, background:'rgba(255,255,255,.15)', color:'#fff', fontSize:13, fontWeight:500, border:'none', cursor:'pointer' }}>✕ Cerrar</button>
+            </div>
           </div>
         </div>
       )}

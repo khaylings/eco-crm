@@ -7,6 +7,7 @@ const { setGlobalOptions } = require('firebase-functions/v2')
 const { initializeApp }    = require('firebase-admin/app')
 const { getAuth }          = require('firebase-admin/auth')
 const { getFirestore, FieldValue } = require('firebase-admin/firestore')
+const { getStorage }   = require('firebase-admin/storage')
 const nodemailer           = require('nodemailer')
 const crypto               = require('crypto')
 const { simpleParser }     = require('mailparser')
@@ -586,7 +587,7 @@ exports.leerEmailsImap = onSchedule('every 5 minutes', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const { procesarMensajeBot } = require('./botEngine')
 
-exports.webhookWaSender = onRequest({ cors: true }, async (req, res) => {
+exports.webhookWaSender = onRequest({ cors: true, timeoutSeconds: 120, memory: '512MiB', maxInstances: 10, minInstances: 0 }, async (req, res) => {
   // ── CORS preflight ──
   res.set('Access-Control-Allow-Origin', '*')
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -618,7 +619,7 @@ exports.webhookWaSender = onRequest({ cors: true }, async (req, res) => {
 
   try {
     const payload = req.body
-    console.log('Webhook WaSender: evento recibido:', payload.event || 'unknown')
+    console.log('Webhook WaSender: evento=' + (payload.event || 'unknown') + ' payload=' + JSON.stringify(payload).slice(0, 800))
 
     // ── Extraer datos del mensaje ──
     // WaSender envía diferentes formatos según el evento
@@ -665,24 +666,35 @@ exports.webhookWaSender = onRequest({ cors: true }, async (req, res) => {
       || msgContent.videoMessage?.caption
       || msg.body || msg.text || msg.caption || ''
 
-    // Detectar tipo de mensaje
+    // Detectar tipo de mensaje y extraer URL del media
     let tipo = 'texto'
     let mediaUrl = null
+    let mimetype = null
+    let thumbnail = null
     if (msgContent.imageMessage) {
       tipo = 'image'
-      mediaUrl = msg.mediaUrl || null
+      mediaUrl = msgContent.imageMessage.url || msg.mediaUrl || null
+      mimetype = msgContent.imageMessage.mimetype || null
+      thumbnail = msgContent.imageMessage.jpegThumbnail || null
     } else if (msgContent.videoMessage) {
       tipo = 'video'
-      mediaUrl = msg.mediaUrl || null
+      mediaUrl = msgContent.videoMessage.url || msg.mediaUrl || null
+      mimetype = msgContent.videoMessage.mimetype || null
+      thumbnail = msgContent.videoMessage.jpegThumbnail || null
     } else if (msgContent.audioMessage || msgContent.pttMessage) {
       tipo = 'audio'
-      mediaUrl = msg.mediaUrl || null
+      const audioMsg = msgContent.audioMessage || msgContent.pttMessage
+      mediaUrl = audioMsg.url || msg.mediaUrl || null
+      mimetype = audioMsg.mimetype || null
     } else if (msgContent.documentMessage || msgContent.documentWithCaptionMessage) {
       tipo = 'file'
-      mediaUrl = msg.mediaUrl || null
+      const docMsg = msgContent.documentMessage || msgContent.documentWithCaptionMessage?.message?.documentMessage
+      mediaUrl = docMsg?.url || msg.mediaUrl || null
+      mimetype = docMsg?.mimetype || null
     } else if (msgContent.stickerMessage) {
       tipo = 'sticker'
-      mediaUrl = msg.mediaUrl || null
+      mediaUrl = msgContent.stickerMessage.url || msg.mediaUrl || null
+      mimetype = msgContent.stickerMessage.mimetype || null
     } else if (msgContent.locationMessage) {
       tipo = 'location'
     }
@@ -732,6 +744,50 @@ exports.webhookWaSender = onRequest({ cors: true }, async (req, res) => {
       })
     }
 
+    // ── Desencriptar media via WaSender API y subir a Firebase Storage ──
+    let storageUrl = null
+    console.log(`Webhook WaSender: tipo=${tipo}, telefono=${telefono}`)
+    if (tipo !== 'texto' && tipo !== 'location') {
+      try {
+        const integDoc = await db.collection('configuracion_segura').doc('integraciones').get()
+        const integData = integDoc.exists ? integDoc.data() : {}
+        const sessionToken = integData.wasenderSessionToken || integData.wasenderToken || ''
+        if (sessionToken) {
+          // Paso 1: Desencriptar via WaSender API — devuelve publicUrl
+          const decryptRes = await fetch2('https://wasenderapi.com/api/decrypt-media', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: { messages: msg } }),
+          })
+          const decryptData = await decryptRes.json()
+          const publicUrl = decryptData?.publicUrl || decryptData?.data?.publicUrl || decryptData?.url || null
+          console.log(`Webhook WaSender: decrypt status=${decryptRes.status}, publicUrl=${publicUrl ? publicUrl.slice(0, 80) : 'null'}`)
+
+          if (publicUrl) {
+            // Paso 2: Descargar la imagen desde el publicUrl de WaSender
+            const imgRes = await fetch2(publicUrl, { timeout: 20000 })
+            if (imgRes.ok) {
+              const buffer = await imgRes.buffer()
+              console.log(`Webhook WaSender: imagen descargada, tamaño=${buffer.length} bytes`)
+              if (buffer.length > 500) {
+                // Paso 3: Subir a Firebase Storage
+                const ext = tipo === 'audio' ? 'ogg' : tipo === 'video' ? 'mp4' : tipo === 'sticker' ? 'webp' : 'jpg'
+                const bucket = getStorage().bucket()
+                const filePath = `chat_media/${convId}/${Date.now()}.${ext}`
+                const file = bucket.file(filePath)
+                await file.save(buffer, { metadata: { contentType: mimetype || 'application/octet-stream' } })
+                await file.makePublic()
+                storageUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`
+                console.log(`Webhook WaSender: media subido a Storage: ${storageUrl}`)
+              }
+            }
+          }
+        }
+      } catch (mediaErr) {
+        console.error('Error procesando media:', mediaErr.message)
+      }
+    }
+
     // ── Guardar mensaje en subcollección ──
     const mensajeData = {
       body: body || '',
@@ -739,11 +795,13 @@ exports.webhookWaSender = onRequest({ cors: true }, async (req, res) => {
       tipo,
       timestamp: now,
     }
-    if (mediaUrl) mensajeData.mediaUrl = mediaUrl
-    if (msg.mimetype) mensajeData.mimetype = msg.mimetype
+    mensajeData.mediaUrl = storageUrl || mediaUrl || null
+    if (mimetype) mensajeData.mimetype = mimetype
+    if (thumbnail && !storageUrl) mensajeData.thumbnail = thumbnail
+    mensajeData.mediaProcesado = !!storageUrl
 
-    // Guardar msgRaw para poder desencriptar media después
-    if (tipo !== 'texto' && tipo !== 'location') {
+    // Guardar msgRaw para poder desencriptar media después si falló
+    if (tipo !== 'texto' && tipo !== 'location' && !storageUrl) {
       try {
         mensajeData.msgRaw = JSON.parse(JSON.stringify(msg))
       } catch (e) { /* ignorar si no se puede serializar */ }
