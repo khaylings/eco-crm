@@ -13,6 +13,7 @@ import { getDocs, collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../../../firebase/firestore'
 import { crearLead, actualizarLead, agregarNotaLead, obtenerNotasLead } from '../../../firebase/contactos'
 import { useAuth } from '../../../context/AuthContext'
+import ReactMarkdown from 'react-markdown'
 
 const PRIORIDADES = ['baja', 'media', 'alta']
 const ICONOS_PRIO = { baja: '⚪', media: '🟡', alta: '🔴' }
@@ -685,7 +686,7 @@ export default function FichaLead({ lead, columnas, contactos, empresas, origene
                 {notas.map(n => (
                   <div key={n.id} style={s.notaBurbuja}>
                     <div style={s.notaAutor}>{n.autor} · {new Date(n.fecha).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' })}</div>
-                    <div style={s.notaTexto}>{n.texto}</div>
+                    <div style={s.notaTexto} className="markdown-nota"><ReactMarkdown>{n.texto}</ReactMarkdown></div>
                   </div>
                 ))}
                 <div ref={notasEndRef} />
@@ -708,6 +709,18 @@ export default function FichaLead({ lead, columnas, contactos, empresas, origene
           </div>
         )}
       </div>
+      <style>{`
+        .markdown-nota p { margin: 0 0 6px 0; }
+        .markdown-nota p:last-child { margin: 0; }
+        .markdown-nota strong { font-weight: 700; }
+        .markdown-nota em { font-style: italic; }
+        .markdown-nota ul, .markdown-nota ol { margin: 4px 0; padding-left: 18px; }
+        .markdown-nota li { margin-bottom: 2px; }
+        .markdown-nota h1, .markdown-nota h2, .markdown-nota h3 { font-size: 0.95rem; font-weight: 700; margin: 6px 0 3px; }
+        .markdown-nota code { background: #e8ecf0; padding: 1px 5px; border-radius: 4px; font-size: 0.82rem; }
+        .markdown-nota blockquote { border-left: 3px solid #185FA5; margin: 4px 0; padding-left: 10px; color: #555; }
+        .markdown-nota a { color: #185FA5; text-decoration: underline; }
+      `}</style>
     </div>
   )
 }

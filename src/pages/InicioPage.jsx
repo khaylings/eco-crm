@@ -252,8 +252,16 @@ export default function InicioPage() {
       })
 
       let facturadoSinIva = 0, porCobrarMonto = 0
-      factPeriodoSnap.docs?.forEach(d => { facturadoSinIva += baseSinIva(d.data()) })
-      factPendSnap.docs?.forEach(d => { porCobrarMonto += Number(d.data().saldo || d.data().total || 0) })
+      factPeriodoSnap.docs?.forEach(d => {
+        const f = d.data()
+        const base = baseSinIva(f)
+        facturadoSinIva += f.moneda === 'CRC' ? base / Number(f.tasa || 519.5) : base
+      })
+      factPendSnap.docs?.forEach(d => {
+        const f = d.data()
+        const monto = Number(f.saldo || f.total || 0)
+        porCobrarMonto += f.moneda === 'CRC' ? monto / Number(f.tasa || 519.5) : monto
+      })
 
       const cerrados = (ganadosSnap.size || 0) + (perdidosSnap.size || 0)
       const tasaConversion = cerrados > 0 ? Math.round((ganadosSnap.size / cerrados) * 100) : 0
@@ -374,9 +382,9 @@ export default function InicioPage() {
     { titulo: 'Leads perdidos',     valor: m.leadsPerdidos,   sub: 'en el período',              color: '#A32D2D', acento: '#A32D2D', ruta: '/crm'      },
     { titulo: 'Tasa de conversión', valor: loading ? '—' : `${m.tasaConversion || 0}%`, sub: 'ganados vs cerrados', color: '#534AB7', acento: '#534AB7', ruta: '/crm' },
     { titulo: 'Ventas del período', valor: loading ? '—' : fmt(m.ventasMes),  sub: `${m.ventasCount || 0} cotizaciones aceptadas`, color: '#3B6D11', acento: '#3B6D11', ruta: '/ventas'   },
-    { titulo: 'Facturado (sin IVA)',valor: loading ? '—' : fmt(m.facturadoSinIva), sub: 'base imponible',      color: '#854F0B', acento: '#854F0B', ruta: '/facturas' },
+    { titulo: 'Facturado (sin IVA)',valor: loading ? '—' : fmt(m.facturadoSinIva), sub: 'base imponible (USD)',      color: '#854F0B', acento: '#854F0B', ruta: '/facturas' },
     { titulo: 'Cots. pendientes',   valor: m.cotsPendientes,  sub: 'sin respuesta del cliente',  color: '#854F0B', acento: '#854F0B', ruta: '/ventas'   },
-    { titulo: 'Por cobrar',         valor: loading ? '—' : fmt(m.porCobrarMonto), sub: `${m.porCobrarCount || 0} facturas pendientes`, color: '#A32D2D', acento: '#A32D2D', ruta: '/facturas' },
+    { titulo: 'Por cobrar',         valor: loading ? '—' : fmt(m.porCobrarMonto), sub: `${m.porCobrarCount || 0} facturas pendientes (USD)`, color: '#A32D2D', acento: '#A32D2D', ruta: '/facturas' },
   ]
 
   const fechaHoy = ahora.toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long' })
