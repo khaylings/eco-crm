@@ -19,7 +19,6 @@ import TabResumenIA from './chats/TabResumenIA'
 import ModalNuevoGrupo from './chats/ModalNuevoGrupo'
 import { Avatar, EtapaBadge, SectionLabel, Divider, sel } from './chats/ChatComponents'
 import { formatFecha, colorFromString } from './chats/helpers'
-import { crearNotificacion } from '../../../services/notificaciones'
 import { WASENDER_URL, WASENDER_TOKEN, NUDGE_IMG_URL, ETIQUETAS, ORIGENES, ROLES_SUPERVISOR, ROLES_RESUMEN_IA } from './chats/constants'
 
 function IndicadorLectura({ chatId, miembros, gruposInternos, usuarios, usuarioActualUid, mensajes }) {
@@ -75,11 +74,6 @@ export default function ChatsPage() {
   const [enviando,        setEnviando]         = useState(false)
   const [usuarios,        setUsuarios]         = useState([])
   const [columnsPipeline, setColumnsPipeline]  = useState([])
-  const [modalRecordatorio, setModalRecordatorio] = useState(false)
-  const [formRecordatorio, setFormRecordatorio] = useState({ titulo:'', descripcion:'', fecha:'', hora:'', tipo:'', repetir:'una_vez' })
-  const [tiposRecordatorio, setTiposRecordatorio] = useState([])
-  const [guardandoRec, setGuardandoRec] = useState(false)
-  const [mostrarArchivadas, setMostrarArchivadas] = useState(false)
   const [tabActiva,       setTabActiva]        = useState('mensaje')
   const [filtroLista,     setFiltroLista]      = useState('todos')
   const [busqueda,        setBusqueda]         = useState('')
@@ -135,12 +129,6 @@ export default function ChatsPage() {
   useEffect(() => {
     const q = query(collection(db, 'pipeline_columnas'), orderBy('orden'))
     return onSnapshot(q, snap => setColumnsPipeline(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-  }, [])
-
-  useEffect(() => {
-    getDocs(collection(db, 'catalogo_tipos_recordatorio')).then(snap => {
-      setTiposRecordatorio(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    }).catch(() => {})
   }, [])
 
   // Etapas dinámicas derivadas de pipeline_columnas
@@ -278,8 +266,6 @@ export default function ChatsPage() {
       if (!esSupervisor && c.agente && c.agente !== usuarioActual?.uid && !(c.colaboradores||[]).includes(usuarioActual?.uid)) return false
       if (filtroNoLeidos === 'noLeidos' && (c.noLeidos || 0) === 0) return false
       if (filtroNoLeidos === 'leidos' && (c.noLeidos || 0) > 0) return false
-      if (!mostrarArchivadas && c.archivada) return false
-      if (mostrarArchivadas && !c.archivada) return false
       return true
     }).map(c => ({ ...c, _tipo: 'wa' }))
 
@@ -317,76 +303,6 @@ export default function ChatsPage() {
     if (filtroLista === 'interno') return [...internos].sort((a, b) => getTs(b) - getTs(a))
     return [...internos, ...wa].sort((a, b) => getTs(b) - getTs(a))
   })()
-
-  const archivarChat = async (conv) => {
-    // Verificar si tiene leads activos
-    if (conv.contactoId) {
-      try {
-        const leadsSnap = await getDocs(query(collection(db, 'leads'), where('contactoId', '==', conv.contactoId)))
-        const tieneActivos = leadsSnap.docs.some(d => { const e = d.data().estado; return e !== 'ganado' && e !== 'perdido' })
-        if (tieneActivos) { alert('No se puede cerrar: este contacto tiene leads activos'); return }
-      } catch {}
-    }
-    await updateDoc(doc(db, 'conversaciones', conv.id), { archivada: true }).catch(() => {})
-    if (chatActivo?.id === conv.id) setChatActivo(null)
-  }
-
-  const desarchivarChat = async (conv) => {
-    await updateDoc(doc(db, 'conversaciones', conv.id), { archivada: false }).catch(() => {})
-  }
-
-  const guardarRecordatorio = async () => {
-    if (!formRecordatorio.titulo.trim() || !formRecordatorio.fecha) { alert('Título y fecha son obligatorios'); return }
-    setGuardandoRec(true)
-    try {
-      const data = {
-        titulo: formRecordatorio.titulo.trim(),
-        descripcion: formRecordatorio.descripcion.trim(),
-        fecha: formRecordatorio.fecha,
-        hora: formRecordatorio.hora || '',
-        tipo: formRecordatorio.tipo || '',
-        repetir: formRecordatorio.repetir || 'una_vez',
-        contactoId: contactoCRM?.id || '',
-        contactoNombre: contactoCRM?.nombre || chatActivo?.nombre || '',
-        empresaId: contactoCRM?.empresaId || '',
-        empresaNombre: contactoCRM?.empresaNombre || '',
-        conversacionId: chatActivo?.id || '',
-        vendedorId: chatActivo?.agente || usuarioActual?.uid || '',
-        vendedorNombre: usuarios.find(u => u.uid === (chatActivo?.agente || usuarioActual?.uid))?.nombre || '',
-        creadoPor: usuarioActual?.uid,
-        creadoPorNombre: usuarioActual?.nombre || '',
-        estado: 'pendiente',
-        creadoEn: serverTimestamp(),
-      }
-      await addDoc(collection(db, 'recordatorios'), data)
-      // Crear evento en calendario
-      await addDoc(collection(db, 'eventos'), {
-        titulo: `⏰ ${data.titulo}`,
-        descripcion: data.descripcion,
-        fecha: data.fecha,
-        hora: data.hora,
-        tipo: 'recordatorio',
-        contactoId: data.contactoId,
-        contactoNombre: data.contactoNombre,
-        asignadoA: data.vendedorId,
-        creadoPor: usuarioActual?.uid,
-        creadoEn: serverTimestamp(),
-      }).catch(() => {})
-      // Notificar al vendedor asignado
-      if (data.vendedorId && data.vendedorId !== usuarioActual?.uid) {
-        await crearNotificacion({
-          destinatarioId: data.vendedorId,
-          tipo: 'general',
-          titulo: `⏰ Recordatorio: ${data.titulo}`,
-          cuerpo: `${data.contactoNombre} — ${data.fecha}${data.hora ? ' ' + data.hora : ''}`,
-          link: '/calendario',
-        }).catch(() => {})
-      }
-      setModalRecordatorio(false)
-      setFormRecordatorio({ titulo:'', descripcion:'', fecha:'', hora:'', tipo:'', repetir:'una_vez' })
-    } catch (e) { console.error(e); alert('Error: ' + e.message) }
-    finally { setGuardandoRec(false) }
-  }
 
   function seleccionarChat(item) {
     setChatActivo(item); setTipoActivo(item._tipo); setTabActiva('mensaje')
@@ -542,10 +458,6 @@ export default function ChatsPage() {
         }
 
         if (!cancelado) {
-          // Cargar observaciones de la empresa si tiene
-          if (ct?.empresaId) {
-            try { const empSnap = await getDoc(doc(db,'empresas',ct.empresaId)); if (empSnap.exists()) ct._obsEmpresa = empSnap.data().observaciones || '' } catch {}
-          }
           setContactoCRM(ct)
           if (ct.id) cargarLeadsContacto(ct.id)
         }
@@ -691,69 +603,6 @@ export default function ChatsPage() {
     <div style={{ display:'flex', height:'100%', overflow:'hidden', fontFamily:'inherit', background:'#f5f7fa' }}>
 
       {nudgeActivo && <ModalNudge nudgeData={nudgeActivo} chatNombre={nudgeChatNombre.current} onCerrar={async () => { if(nudgeActivo.chatId) await updateDoc(doc(db,'chats_internos',nudgeActivo.chatId),{nudge:null}).catch(()=>{}); setNudgeActivo(null) }} />}
-
-      {/* Modal Recordatorio */}
-      {modalRecordatorio && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.45)', backdropFilter:'blur(3px)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={e => e.target === e.currentTarget && setModalRecordatorio(false)}>
-          <div style={{ background:'#fff', borderRadius:14, width:'95%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,.2)', overflow:'hidden' }}>
-            <div style={{ padding:'16px 20px', borderBottom:'1px solid #f0f2f5', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <div>
-                <div style={{ fontWeight:700, fontSize:15 }}>⏰ Nuevo recordatorio</div>
-                <div style={{ fontSize:12, color:'#888' }}>{contactoCRM?.nombre || chatActivo?.nombre || ''}</div>
-              </div>
-              <button onClick={() => setModalRecordatorio(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#aaa' }}>×</button>
-            </div>
-            <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:12 }}>
-              <div>
-                <label style={{ fontSize:10, fontWeight:600, color:'#888', textTransform:'uppercase', display:'block', marginBottom:3 }}>Título *</label>
-                <input value={formRecordatorio.titulo} onChange={e => setFormRecordatorio(f => ({...f, titulo:e.target.value}))} placeholder="Ej: Llamar para seguimiento" style={{ width:'100%', padding:'7px 10px', border:'1px solid #dde3ed', borderRadius:7, fontSize:13, outline:'none', fontFamily:'inherit', boxSizing:'border-box' }} />
-              </div>
-              <div>
-                <label style={{ fontSize:10, fontWeight:600, color:'#888', textTransform:'uppercase', display:'block', marginBottom:3 }}>Descripción</label>
-                <textarea value={formRecordatorio.descripcion} onChange={e => setFormRecordatorio(f => ({...f, descripcion:e.target.value}))} placeholder="Detalles adicionales..." style={{ width:'100%', padding:'7px 10px', border:'1px solid #dde3ed', borderRadius:7, fontSize:13, outline:'none', fontFamily:'inherit', boxSizing:'border-box', minHeight:50, resize:'vertical' }} />
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <div>
-                  <label style={{ fontSize:10, fontWeight:600, color:'#888', textTransform:'uppercase', display:'block', marginBottom:3 }}>Fecha *</label>
-                  <input type="date" value={formRecordatorio.fecha} onChange={e => setFormRecordatorio(f => ({...f, fecha:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:'1px solid #dde3ed', borderRadius:7, fontSize:13, outline:'none', fontFamily:'inherit', boxSizing:'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize:10, fontWeight:600, color:'#888', textTransform:'uppercase', display:'block', marginBottom:3 }}>Hora</label>
-                  <input type="time" value={formRecordatorio.hora} onChange={e => setFormRecordatorio(f => ({...f, hora:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:'1px solid #dde3ed', borderRadius:7, fontSize:13, outline:'none', fontFamily:'inherit', boxSizing:'border-box' }} />
-                </div>
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <div>
-                  <label style={{ fontSize:10, fontWeight:600, color:'#888', textTransform:'uppercase', display:'block', marginBottom:3 }}>Tipo</label>
-                  <select value={formRecordatorio.tipo} onChange={e => setFormRecordatorio(f => ({...f, tipo:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:'1px solid #dde3ed', borderRadius:7, fontSize:13, outline:'none', fontFamily:'inherit', boxSizing:'border-box' }}>
-                    <option value="">— Sin tipo —</option>
-                    {tiposRecordatorio.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize:10, fontWeight:600, color:'#888', textTransform:'uppercase', display:'block', marginBottom:3 }}>Repetir</label>
-                  <select value={formRecordatorio.repetir} onChange={e => setFormRecordatorio(f => ({...f, repetir:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:'1px solid #dde3ed', borderRadius:7, fontSize:13, outline:'none', fontFamily:'inherit', boxSizing:'border-box' }}>
-                    <option value="una_vez">Una vez</option>
-                    <option value="diario">Diario</option>
-                    <option value="semanal">Semanal</option>
-                    <option value="quincenal">Quincenal</option>
-                    <option value="mensual">Mensual</option>
-                    <option value="trimestral">Trimestral</option>
-                    <option value="semestral">Semestral</option>
-                    <option value="anual">Anual</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            <div style={{ padding:'14px 20px', borderTop:'1px solid #f0f2f5', display:'flex', gap:8, justifyContent:'flex-end' }}>
-              <button onClick={() => setModalRecordatorio(false)} style={{ padding:'8px 16px', border:'1px solid #dde3ed', borderRadius:8, fontSize:12, cursor:'pointer', background:'#f5f5f5', fontFamily:'inherit' }}>Cancelar</button>
-              <button onClick={guardarRecordatorio} disabled={guardandoRec} style={{ padding:'8px 20px', border:'none', borderRadius:8, fontSize:12, fontWeight:600, cursor:guardandoRec?'not-allowed':'pointer', background:guardandoRec?'#e0e0e0':'#185FA5', color:guardandoRec?'#aaa':'#fff', fontFamily:'inherit' }}>
-                {guardandoRec ? 'Guardando...' : 'Crear recordatorio'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {showNuevoGrupo && <ModalNuevoGrupo usuarios={usuarios} onCrear={crearGrupo} onCerrar={() => setShowNuevoGrupo(false)} usuarioActual={usuarioActual} />}
 
       {showNuevoChat && (
@@ -814,10 +663,7 @@ export default function ChatsPage() {
           {filtroLista==='interno'&&<button onClick={()=>setShowNuevoGrupo(true)} style={{ width:'100%', padding:'7px', border:'1px dashed #0F6E56', borderRadius:8, fontSize:12, cursor:'pointer', background:'#f0faf6', color:'#0F6E56', fontFamily:'inherit', fontWeight:500, marginBottom:8 }}>+ Nuevo grupo interno</button>}
           <div style={{ fontSize:10, color:'#bbb', marginBottom:6, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <span>{listaFiltrada.length} conversación{listaFiltrada.length!==1?'es':''}</span>
-            <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-              <button onClick={() => setMostrarArchivadas(v => !v)} style={{ fontSize:10, color:mostrarArchivadas?'#A32D2D':'#888', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'inherit' }}>{mostrarArchivadas?'Ver activas':'📦 Archivadas'}</button>
-              {(filtroNoLeidos!=='todos'||filtroEtiqueta||filtroEtapa||busqueda)&&<button onClick={()=>{setFiltroNoLeidos('todos');setFiltroEtiqueta('');setFiltroEtapa('');setBusqueda('')}} style={{ fontSize:10, color:'#185FA5', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'inherit' }}>Limpiar</button>}
-            </div>
+            {(filtroNoLeidos!=='todos'||filtroEtiqueta||filtroEtapa||busqueda)&&<button onClick={()=>{setFiltroNoLeidos('todos');setFiltroEtiqueta('');setFiltroEtapa('');setBusqueda('')}} style={{ fontSize:10, color:'#185FA5', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'inherit' }}>Limpiar filtros</button>}
           </div>
         </div>
 
@@ -856,7 +702,6 @@ export default function ChatsPage() {
                       {!esInterno&&agenteNombre&&<span style={{ fontSize:10, color:'#bbb' }}>👤 {agenteNombre}</span>}
                       {esInterno&&(item.miembros||[]).length>2&&<span style={{ fontSize:10, color:'#aaa' }}>Chat grupal</span>}
                       {noLeidos>0&&<span style={{ marginLeft:'auto', background:esInterno?'#0F6E56':'var(--eco-primary,#1a3a5c)', color:'#fff', fontSize:10, padding:'1px 7px', borderRadius:10, fontWeight:700 }}>{noLeidos}</span>}
-                      {mostrarArchivadas&&!esInterno&&<button onClick={e=>{e.stopPropagation();desarchivarChat(item)}} title="Reactivar chat" style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'#185FA5', fontSize:10, padding:'0 4px', fontFamily:'inherit' }}>↩</button>}
                     </div>
                   </div>
                 </div>
@@ -890,10 +735,7 @@ export default function ChatsPage() {
             </div>
             {tipoActivo==='interno'
               ?<span style={{ fontSize:'11px', padding:'3px 10px', borderRadius:'20px', background:'#E1F5EE', color:'#0F6E56', fontWeight:600 }}>💬 Chat interno</span>
-              :<>
-                <span style={{ fontSize:'11px', padding:'3px 10px', borderRadius:'20px', background:'#EAF3DE', color:'#3B6D11', fontWeight:600 }}>📱 WhatsApp</span>
-                <button onClick={()=>archivarChat(chatActivo)} style={{ padding:'3px 10px', borderRadius:20, border:'1px solid #f0f0f0', background:'#fff', color:'#888', fontSize:11, cursor:'pointer', fontFamily:'inherit', fontWeight:500 }} onMouseEnter={e=>{e.currentTarget.style.background='#FCEBEB';e.currentTarget.style.color='#A32D2D';e.currentTarget.style.borderColor='#f09595'}} onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.color='#888';e.currentTarget.style.borderColor='#f0f0f0'}}>✕ Cerrar chat</button>
-              </>
+              :<span style={{ fontSize:'11px', padding:'3px 10px', borderRadius:'20px', background:'#EAF3DE', color:'#3B6D11', fontWeight:600 }}>📱 WhatsApp</span>
             }
           </div>
 
@@ -1137,20 +979,6 @@ export default function ChatsPage() {
                     ))}
                   </div>
                 </>)}
-                <Divider />
-                {/* ── OBSERVACIONES ── */}
-                <SectionLabel>Observaciones del contacto</SectionLabel>
-                <textarea value={contactoCRM?.observaciones||''} onChange={e=>setContactoCRM(prev=>({...prev,observaciones:e.target.value}))} onBlur={e=>guardarContactoCRM('observaciones',e.target.value)} placeholder="Notas sobre este contacto..." style={{ width:'100%', border:'1px solid #e8ecf0', borderRadius:6, padding:'6px 8px', fontSize:11, outline:'none', fontFamily:'inherit', resize:'vertical', minHeight:40, boxSizing:'border-box', color:'#1a1a1a' }} />
-                {contactoCRM?.empresaId && (
-                  <>
-                    <SectionLabel style={{ marginTop:6 }}>Observaciones de la empresa</SectionLabel>
-                    <textarea value={contactoCRM?._obsEmpresa||''} onChange={e=>setContactoCRM(prev=>({...prev,_obsEmpresa:e.target.value}))} onBlur={async e=>{if(contactoCRM?.empresaId){await updateDoc(doc(db,'empresas',contactoCRM.empresaId),{observaciones:e.target.value}).catch(()=>{})}}} placeholder="Notas sobre la empresa..." style={{ width:'100%', border:'1px solid #e8ecf0', borderRadius:6, padding:'6px 8px', fontSize:11, outline:'none', fontFamily:'inherit', resize:'vertical', minHeight:40, boxSizing:'border-box', color:'#1a1a1a' }} />
-                  </>
-                )}
-                <Divider />
-                {/* ── RECORDATORIO ── */}
-                <SectionLabel>Recordatorio</SectionLabel>
-                <button onClick={()=>setModalRecordatorio(true)} style={{ width:'100%', padding:'7px', border:'1px dashed #185FA5', borderRadius:7, background:'#f8faff', color:'#185FA5', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>⏰ Crear recordatorio</button>
                 <Divider />
                 {/* ── LEADS CRM ── */}
                 <SectionLabel>Leads activos ({leadsCRM.length})</SectionLabel>
