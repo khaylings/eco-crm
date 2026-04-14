@@ -746,7 +746,11 @@ export default function ChatsPage() {
                           </div>
                         )}
                         {msg.tipo==='sticker'?<div style={{ position:'relative' }}><img src={msg.mediaUrl} alt="sticker" style={{ maxWidth:120, maxHeight:120, borderRadius:8, display:'block' }} /><button onClick={()=>guardarStickerFavorito(msg.mediaUrl)} style={{ position:'absolute', top:2, right:2, background:'rgba(0,0,0,.5)', border:'none', borderRadius:'50%', width:22, height:22, cursor:'pointer', color:'#fff', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>⭐</button></div>
-                        :msg.tipo==='image'||msg.type==='image'?msg.mediaUrl?<img src={msg.mediaUrl} alt="img" style={{ maxWidth:200, maxHeight:200, borderRadius:8, display:'block', cursor:'pointer' }} onClick={()=>setImagenModal(msg.mediaUrl)} />:<span style={{ fontSize:'12px', fontStyle:'italic' }}>📷 Imagen</span>
+                        :msg.tipo==='image'||msg.type==='image'||msg.tipo==='imagen'?(()=>{
+                          const thumb = msg.thumbnail ? `data:image/jpeg;base64,${msg.thumbnail}` : null
+                          const url = msg.mediaUrl && !msg.mediaUrl.includes('mmg.whatsapp.net') ? msg.mediaUrl : thumb
+                          return url ? <img src={url} alt="img" style={{ maxWidth:200, maxHeight:200, borderRadius:8, display:'block', cursor:'pointer' }} onClick={()=>setImagenModal(url)} /> : <span style={{ fontSize:'12px', fontStyle:'italic' }}>📷 Imagen</span>
+                        })()
                         :msg.tipo==='audio'||msg.type==='audio'?msg.mediaUrl?<audio controls src={msg.mediaUrl} style={{ maxWidth:220, height:36 }} />:<span style={{ fontSize:'12px', fontStyle:'italic' }}>🎵 Audio</span>
                         :msg.tipo==='video'||msg.type==='video'?msg.mediaUrl?<video controls src={msg.mediaUrl} style={{ maxWidth:220, borderRadius:8 }} />:<span style={{ fontSize:'12px', fontStyle:'italic' }}>🎬 Video</span>
                         :msg.tipo==='file'?<a href={msg.mediaUrl} target="_blank" rel="noreferrer" style={{ color:esMio?'#fff':'#185FA5', fontSize:12 }}>📎 {msg.body}</a>

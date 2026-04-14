@@ -30,7 +30,6 @@ const SECCIONES = [
   { id: 'cuentas',    label: 'Cuentas' },
   { id: 'proveedores', label: 'Proveedores' },
   { id: 'empleados',   label: '👷 Empleados' },
-  { id: 'celebraciones', label: '🎉 Celebraciones' },
   { id: 'operaciones', label: '🛠️ Operaciones' },
   { id: 'bot',        label: '🤖 Bot de Ayuda' },
   { id: 'devtools',   label: 'Dev Tools' },
@@ -469,13 +468,7 @@ function PaginaUsuarios() {
         {lista.length===0&&<div style={{padding:24,textAlign:'center',color:'#aaa',fontSize:13}}>Sin usuarios</div>}
         {lista.map((u,i)=>(
           <div key={u.id} style={{display:'grid',gridTemplateColumns:'2fr 2fr 1.5fr 0.8fr 1.5fr',padding:'11px 16px',alignItems:'center',borderBottom:i<lista.length-1?'1px solid #f0f4f0':'none',background:u.id===miUID?'#f9fff9':'#fff'}}>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <div style={{position:'relative',flexShrink:0}}>
-                {u.fotoURL ? <img src={u.fotoURL} alt="" style={{width:30,height:30,borderRadius:'50%',objectFit:'cover'}} /> : <div style={{width:30,height:30,borderRadius:'50%',background:'#d4e8d4',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:12,color:'#1a6e3c'}}>{(u.nombre||'?')[0].toUpperCase()}</div>}
-                {esAdmin&&<><input type="file" accept="image/png" id={`av-cfg-${u.id}`} style={{display:'none'}} onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{const{ref:sRef,uploadBytes:ub,getDownloadURL:gdl}=await import('firebase/storage');const{storage:st}=await import('../../../firebase/config');const r=sRef(st,`avatares/${u.id}.png`);await ub(r,f);const url=await gdl(r);await updateDoc(doc(db,'usuarios',u.id),{fotoURL:url});cargar()}catch(err){console.error(err)}e.target.value=''}}/><button onClick={()=>document.getElementById(`av-cfg-${u.id}`).click()} style={{position:'absolute',bottom:-2,right:-2,width:16,height:16,borderRadius:'50%',background:'var(--eco-primary)',border:'1.5px solid #fff',color:'#fff',fontSize:8,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}} title="Cambiar avatar">📷</button></>}
-              </div>
-              <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{u.nombre}{u.id===miUID&&<span style={{fontSize:10,color:'#1a6e3c',marginLeft:4}}>(tú)</span>}</div>
-            </div>
+            <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{u.nombre}{u.id===miUID&&<span style={{fontSize:10,color:'#1a6e3c',marginLeft:4}}>(tú)</span>}</div>
             <div style={{fontSize:12,color:'#555'}}>{u.email}</div>
             <span style={{fontSize:11,fontWeight:600,padding:'2px 10px',borderRadius:20,background:(ROL_COLOR[u.rol]||'#888')+'18',color:ROL_COLOR[u.rol]||'#888',border:`1px solid ${(ROL_COLOR[u.rol]||'#888')}40`,display:'inline-block'}}>{u.rol}</span>
             <span style={{fontSize:11,fontWeight:600,borderRadius:20,padding:'2px 10px',display:'inline-block',color:u.activo!==false?'#1a6e3c':'#999',background:u.activo!==false?'#e8f5e9':'#f0f0f0'}}>{u.activo!==false?'Activo':'Inactivo'}</span>
@@ -1795,70 +1788,6 @@ function PaginaProveedores() {
   )
 }
 
-// ─── CELEBRACIONES ────────────────────────────────────────────────────────────
-function PaginaCelebraciones() {
-  const [config, setConfig] = useState({ activo: true, rolesQueVen: [] })
-  const [roles, setRoles] = useState([])
-  const [guardando, setGuardando] = useState(false)
-  const [msg, setMsg] = useState('')
-
-  useEffect(() => {
-    getDoc(doc(db, 'configuracion', 'ventas_celebraciones')).then(snap => {
-      if (snap.exists()) setConfig(snap.data())
-    })
-    getDocs(collection(db, 'roles')).then(snap => setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-  }, [])
-
-  const toggleRol = (nombre) => {
-    const arr = config.rolesQueVen || []
-    setConfig({ ...config, rolesQueVen: arr.includes(nombre) ? arr.filter(r => r !== nombre) : [...arr, nombre] })
-  }
-
-  const guardar = async () => {
-    setGuardando(true)
-    try {
-      await setDoc(doc(db, 'configuracion', 'ventas_celebraciones'), config, { merge: true })
-      setMsg('✓ Guardado'); setTimeout(() => setMsg(''), 2500)
-    } catch { setMsg('Error') }
-    finally { setGuardando(false) }
-  }
-
-  return (
-    <div style={{ padding: '24px 28px', overflowY: 'auto', flex: 1 }}>
-      <SubTitle>Celebraciones de ventas</SubTitle>
-      <div style={{ background: '#fff', border: '1px solid #e0e8e0', borderRadius: 10, padding: '20px 24px', maxWidth: 500 }}>
-        <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <input type="checkbox" checked={config.activo !== false} onChange={e => setConfig({ ...config, activo: e.target.checked })} style={{ accentColor: 'var(--eco-primary)', width: 16, height: 16 }} />
-            <span style={{ fontWeight: 500 }}>Celebraciones activas</span>
-          </label>
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 8 }}>Roles que ven las celebraciones</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {roles.map(r => {
-              const sel = (config.rolesQueVen || []).includes(r.nombre)
-              return (
-                <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 7, cursor: 'pointer', background: sel ? '#E6F1FB' : '#fafafa', border: `1px solid ${sel ? '#93C5FD' : '#e8e8e8'}` }}>
-                  <input type="checkbox" checked={sel} onChange={() => toggleRol(r.nombre)} style={{ accentColor: 'var(--eco-primary)', width: 14, height: 14 }} />
-                  <span style={{ fontSize: 13, fontWeight: sel ? 500 : 400 }}>{r.nombre}</span>
-                </label>
-              )
-            })}
-          </div>
-          <p style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Si no seleccionás ninguno, todos los roles lo ven.</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={guardar} disabled={guardando} style={{ padding: '8px 20px', border: 'none', borderRadius: 7, background: 'var(--eco-primary)', color: '#fff', fontSize: 13, fontWeight: 500, cursor: guardando ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-            {guardando ? 'Guardando...' : 'Guardar'}
-          </button>
-          {msg && <span style={{ fontSize: 12, color: msg.startsWith('✓') ? '#3B6D11' : '#A32D2D', fontWeight: 500 }}>{msg}</span>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── EMPLEADOS ────────────────────────────────────────────────────────────────
 function PaginaEmpleados() {
   const authCtx = useAuth()
@@ -2210,7 +2139,6 @@ export default function ConfiguracionPage() {
         {seccion==='catalogos'  && <PaginaCatalogos />}
         {seccion==='cuentas'    && <PaginaCuentas />}
         {seccion==='proveedores' && <PaginaProveedores />}
-        {seccion==='celebraciones' && <PaginaCelebraciones />}
         {seccion==='empleados'   && <PaginaEmpleados />}
         {seccion==='operaciones' && <PaginaOperaciones />}
         {seccion==='bot'        && <PaginaBot />}

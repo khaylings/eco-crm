@@ -8,10 +8,11 @@
  * ============================================================
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, updateDoc, getDocs, collection, query, where, serverTimestamp } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
+import { doc, getDoc, updateDoc, getDocs, addDoc, collection, query, where, serverTimestamp } from 'firebase/firestore'
+import { db, storage } from '../../../firebase/config'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { usePermisos } from '../../../hooks/usePermisos'
 import { useAuth } from '../../../context/AuthContext'
 import { signInWithEmailAndPassword, getAuth } from 'firebase/auth'
@@ -215,6 +216,29 @@ function ModalPago({ factura, onGuardar, onCerrar }) {
   const [nota,       setNota]       = useState('')
   const [guardando,  setGuardando]  = useState(false)
   const [error,      setError]      = useState('')
+  const [foto,       setFoto]       = useState(null)
+  const [fotoPreview, setFotoPreview] = useState(null)
+  const fotoRef = useRef()
+
+  const handleFoto = (file) => {
+    if (!file) return
+    setFoto(file)
+    const reader = new FileReader()
+    reader.onload = ev => setFotoPreview(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        handleFoto(item.getAsFile())
+        return
+      }
+    }
+  }
 
   const saldo = Number(factura.saldo ?? 0)
   const mon   = factura.moneda || 'USD'
@@ -225,7 +249,15 @@ function ModalPago({ factura, onGuardar, onCerrar }) {
     if (montoNum > saldo + 0.01) { setError(`El monto no puede superar el saldo de ${sym(mon)}${fmtN(saldo, mon)}.`); return }
     setError('')
     setGuardando(true)
-    await onGuardar({ id: genId(), monto: montoNum, metodo, referencia, fecha, nota, registradoEn: new Date().toISOString() })
+    let comprobanteUrl = ''
+    if (foto) {
+      try {
+        const sRef = storageRef(storage, `comprobantes/${Date.now()}_${foto.name}`)
+        const snap = await uploadBytes(sRef, foto)
+        comprobanteUrl = await getDownloadURL(snap.ref)
+      } catch (err) { console.error('Error subiendo comprobante:', err) }
+    }
+    await onGuardar({ id: genId(), monto: montoNum, metodo, referencia, fecha, nota, comprobante: comprobanteUrl, registradoEn: new Date().toISOString() })
     setGuardando(false)
   }
 
@@ -280,7 +312,22 @@ function ModalPago({ factura, onGuardar, onCerrar }) {
           </div>
           <div>
             <label style={s.lbl}>Nota interna (opcional)</label>
-            <textarea style={{ ...s.inp, resize: 'vertical' }} rows={2} placeholder="Observación sobre este pago..." value={nota} onChange={e => setNota(e.target.value)} />
+            <textarea style={{ ...s.inp, resize: 'vertical' }} rows={2} placeholder="Observación sobre este pago..." value={nota} onChange={e => setNota(e.target.value)} onPaste={handlePaste} />
+          </div>
+          <div>
+            <label style={s.lbl}>Comprobante (foto)</label>
+            <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files?.[0]) handleFoto(e.target.files[0]); e.target.value = '' }} />
+            {fotoPreview ? (
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <img src={fotoPreview} alt="comprobante" style={{ maxHeight: 120, maxWidth: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }} />
+                <button onClick={() => { setFoto(null); setFotoPreview(null) }} style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: '#A32D2D', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button onClick={() => fotoRef.current?.click()} style={{ padding: '8px 14px', border: '1px dashed #bbb', borderRadius: 7, background: '#fafafa', color: '#888', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>📷 Subir imagen</button>
+                <span style={{ fontSize: 11, color: '#bbb' }}>o Ctrl+V para pegar</span>
+              </div>
+            )}
           </div>
           <div style={{ padding: '8px 12px', background: '#FAEEDA', border: '0.5px solid #FAC775', borderRadius: 7, fontSize: 11, color: '#854F0B', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>⏳</span>
@@ -412,6 +459,25 @@ export default function FacturaDetalle() {
       actualizadoEn: serverTimestamp(),
     })
     setFactura(f => ({ ...f, estado: estadoNuevo, estadoCalculado: estadoNuevo }))
+    // Celebración pausada al marcar Incobrable — obtener avatar
+    if (estadoNuevo === 'Incobrable') {
+      let avIncob = ''
+      if (factura.vendedorId) { try { const uS = await getDoc(doc(db, 'usuarios', factura.vendedorId)); if (uS.exists()) avIncob = uS.data().fotoURL || '' } catch {} }
+      await addDoc(collection(db, 'ventas_celebraciones'), {
+        tipo: 'pausada',
+        vendedorId: factura.vendedorId || '',
+        vendedorNombre: factura.vendedorNombre || '',
+        vendedorAvatar: avIncob,
+        facturaId: id,
+        cotizacionId: factura.cotizacionId || '',
+        monto: factura.total || 0,
+        moneda: factura.moneda || 'USD',
+        mensaje: 'La venta ha sido pausada — apoyo para recuperarla',
+        creadoEn: serverTimestamp(),
+        reacciones: {},
+        visto: [],
+      }).catch(() => {})
+    }
     setShowModalIncobl(false)
   }
 

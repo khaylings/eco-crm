@@ -8,13 +8,14 @@
  * ============================================================
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   doc, getDoc, setDoc, addDoc, updateDoc, collection,
   getDocs, query, orderBy, serverTimestamp, runTransaction
 } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
+import { db, storage } from '../../../firebase/config'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useAuth } from '../../../context/AuthContext'
 import { usePermisos } from '../../../hooks/usePermisos'
 
@@ -178,6 +179,11 @@ function ModalPago({ orden, onGuardar, onCerrar }) {
   const [nota,       setNota]      = useState('')
   const [guardando,  setGuardando] = useState(false)
   const [error,      setError]     = useState('')
+  const [fotoC, setFotoC]          = useState(null)
+  const [fotoPreviewC, setFotoPreviewC] = useState(null)
+  const fotoRefC = useRef()
+  const handleFotoC = (file) => { if (!file) return; setFotoC(file); const r = new FileReader(); r.onload = ev => setFotoPreviewC(ev.target.result); r.readAsDataURL(file) }
+  const handlePasteC = (e) => { const items = e.clipboardData?.items; if (!items) return; for (const item of items) { if (item.type.startsWith('image/')) { e.preventDefault(); handleFotoC(item.getAsFile()); return } } }
 
   const saldo = Number(orden.saldo ?? orden.total ?? 0)
   const mon   = orden.moneda || 'CRC'
@@ -188,7 +194,9 @@ function ModalPago({ orden, onGuardar, onCerrar }) {
     if (num > saldo + 0.01) { setError(`El monto no puede superar el saldo.`); return }
     setError('')
     setGuardando(true)
-    await onGuardar({ id: genId(), monto: num, metodo, referencia, fecha, nota, registradoEn: new Date().toISOString() })
+    let comprobanteUrl = ''
+    if (fotoC) { try { const sR = storageRef(storage, `comprobantes/${Date.now()}_${fotoC.name}`); const sn = await uploadBytes(sR, fotoC); comprobanteUrl = await getDownloadURL(sn.ref) } catch {} }
+    await onGuardar({ id: genId(), monto: num, metodo, referencia, fecha, nota, comprobante: comprobanteUrl, registradoEn: new Date().toISOString() })
     setGuardando(false)
   }
 
@@ -227,7 +235,12 @@ function ModalPago({ orden, onGuardar, onCerrar }) {
             <div><label style={s.lbl}>Fecha</label><input style={s.inp} type="date" value={fecha} onChange={e => setFecha(e.target.value)} /></div>
             <div><label style={s.lbl}>Referencia</label><input style={s.inp} placeholder="Nº transferencia..." value={referencia} onChange={e => setRef(e.target.value)} /></div>
           </div>
-          <div><label style={s.lbl}>Nota</label><textarea style={{ ...s.inp, resize: 'vertical' }} rows={2} value={nota} onChange={e => setNota(e.target.value)} /></div>
+          <div><label style={s.lbl}>Nota</label><textarea style={{ ...s.inp, resize: 'vertical' }} rows={2} value={nota} onChange={e => setNota(e.target.value)} onPaste={handlePasteC} /></div>
+          <div><label style={s.lbl}>Comprobante</label>
+            <input ref={fotoRefC} type="file" accept="image/*" style={{ display:'none' }} onChange={e => { if(e.target.files?.[0]) handleFotoC(e.target.files[0]); e.target.value='' }} />
+            {fotoPreviewC ? (<div style={{ position:'relative', display:'inline-block' }}><img src={fotoPreviewC} alt="" style={{ maxHeight:100, borderRadius:8, border:'1px solid #e0e0e0' }} /><button onClick={() => { setFotoC(null); setFotoPreviewC(null) }} style={{ position:'absolute', top:-6, right:-6, width:20, height:20, borderRadius:'50%', background:'#A32D2D', border:'none', color:'#fff', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>×</button></div>
+            ) : (<div style={{ display:'flex', gap:8, alignItems:'center' }}><button onClick={() => fotoRefC.current?.click()} style={{ padding:'6px 12px', border:'1px dashed #bbb', borderRadius:7, background:'#fafafa', color:'#888', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>📷 Subir</button><span style={{ fontSize:10, color:'#bbb' }}>o Ctrl+V</span></div>)}
+          </div>
           {error && <div style={{ padding: '8px 12px', background: '#FCEBEB', borderRadius: 7, fontSize: 12, color: '#A32D2D' }}>{error}</div>}
         </div>
         <div style={{ padding: '12px 20px', borderTop: '0.5px solid rgba(0,0,0,.08)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

@@ -8,12 +8,13 @@
  * ============================================================
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   collection, onSnapshot, query, orderBy, addDoc,
   updateDoc, deleteDoc, doc, getDoc, serverTimestamp
 } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
+import { db, storage } from '../../../firebase/config'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { usePermisos } from '../../../hooks/usePermisos'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -568,12 +569,19 @@ function ModalPagoCuota({ credito, cuentas, onPagar, onCerrar }) {
   const [montoPago, setMontoPago] = useState(credito?.cuotaMensual || 0)
   const [referencia, setReferencia] = useState('')
   const [pagando, setPagando] = useState(false)
+  const [fotoB, setFotoB] = useState(null)
+  const [fotoPreviewB, setFotoPreviewB] = useState(null)
+  const fotoRefB = useRef()
+  const handleFotoB = (file) => { if (!file) return; setFotoB(file); const r = new FileReader(); r.onload = ev => setFotoPreviewB(ev.target.result); r.readAsDataURL(file) }
+  const handlePasteB = (e) => { const items = e.clipboardData?.items; if (!items) return; for (const item of items) { if (item.type.startsWith('image/')) { e.preventDefault(); handleFotoB(item.getAsFile()); return } } }
 
   const cuenta = cuentas.find(c => c.id === credito?.cuentaVinculadaId)
 
   const handlePagar = async () => {
     setPagando(true)
-    await onPagar({ fecha, monto: Number(montoPago), referencia })
+    let comprobanteUrl = ''
+    if (fotoB) { try { const sR = storageRef(storage, `comprobantes/${Date.now()}_${fotoB.name}`); const sn = await uploadBytes(sR, fotoB); comprobanteUrl = await getDownloadURL(sn.ref) } catch {} }
+    await onPagar({ fecha, monto: Number(montoPago), referencia, comprobante: comprobanteUrl })
     setPagando(false)
   }
 
@@ -610,8 +618,13 @@ function ModalPagoCuota({ credito, cuentas, onPagar, onCerrar }) {
           </div>
 
           <div>
-            <label style={s.lbl}>Referencia / Comprobante (opcional)</label>
-            <input style={s.inp} placeholder="Nº comprobante..." value={referencia} onChange={e => setReferencia(e.target.value)} />
+            <label style={s.lbl}>Referencia (opcional)</label>
+            <input style={s.inp} placeholder="Nº comprobante..." value={referencia} onChange={e => setReferencia(e.target.value)} onPaste={handlePasteB} />
+          </div>
+          <div><label style={s.lbl}>Comprobante</label>
+            <input ref={fotoRefB} type="file" accept="image/*" style={{ display:'none' }} onChange={e => { if(e.target.files?.[0]) handleFotoB(e.target.files[0]); e.target.value='' }} />
+            {fotoPreviewB ? (<div style={{ position:'relative', display:'inline-block' }}><img src={fotoPreviewB} alt="" style={{ maxHeight:100, borderRadius:8, border:'1px solid #e0e0e0' }} /><button onClick={() => { setFotoB(null); setFotoPreviewB(null) }} style={{ position:'absolute', top:-6, right:-6, width:20, height:20, borderRadius:'50%', background:'#A32D2D', border:'none', color:'#fff', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>×</button></div>
+            ) : (<div style={{ display:'flex', gap:8, alignItems:'center' }}><button onClick={() => fotoRefB.current?.click()} style={{ padding:'6px 12px', border:'1px dashed #bbb', borderRadius:7, background:'#fafafa', color:'#888', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>📷 Subir</button><span style={{ fontSize:10, color:'#bbb' }}>o Ctrl+V</span></div>)}
           </div>
         </div>
 

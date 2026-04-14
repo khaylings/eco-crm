@@ -41,30 +41,27 @@ const IVA_OPCIONES = [
   { label: "0%",  value: 0  },
 ];
 
-const calcLinea = (p, ivaPctGlobal = 13) => {
-  const precio   = Number(p.precioVentaItem ?? p.precio ?? 0);
-  const costo    = Number(p.costoItem ?? p.costo ?? 0);
+const calcLinea = (p) => {
+  const precio   = Number(p.precio || 0);
   const cant     = Number(p.cantidad || 1);
   const descPct  = p.descTipo === "%" ? Number(p.desc || 0) : 0;
   const descMonto= p.descTipo === "$" ? Number(p.desc || 0) : 0;
   const base     = precio * cant;
   const descTotal= descPct > 0 ? base * (descPct / 100) : descMonto * cant;
   const neto     = base - descTotal;
-  const ivaPct   = Number(ivaPctGlobal) / 100;
+  const ivaPct   = Number(p.ivaPct ?? 13) / 100;
   const imp      = neto * ivaPct;
-  const margen   = (precio - costo) * cant;
-  return { base, neto, imp, total: neto + imp, margen };
+  return { base, neto, imp, total: neto + imp };
 };
 
-const calcOpcion = (op, descGlobal, descGlobalTipo, ivaPctGlobal = 13) => {
+const calcOpcion = (op, descGlobal, descGlobalTipo) => {
   const prods      = (op.productos || []);
-  const subtotal   = prods.reduce((a, p) => a + calcLinea(p, ivaPctGlobal).base, 0);
-  const descLineas = prods.reduce((a, p) => { const c = calcLinea(p, ivaPctGlobal); return a + (c.base - c.neto); }, 0);
+  const subtotal   = prods.reduce((a, p) => a + calcLinea(p).base, 0);
+  const descLineas = prods.reduce((a, p) => { const c = calcLinea(p); return a + (c.base - c.neto); }, 0);
   const descG      = descGlobalTipo === "%" ? (subtotal - descLineas) * (Number(descGlobal || 0) / 100) : Number(descGlobal || 0);
-  const iva        = prods.reduce((a, p) => a + calcLinea(p, ivaPctGlobal).imp, 0);
-  const margenTotal= prods.reduce((a, p) => a + calcLinea(p, ivaPctGlobal).margen, 0);
+  const iva        = prods.reduce((a, p) => a + calcLinea(p).imp, 0);
   const total      = subtotal - descLineas - descG + iva;
-  return { subtotal, descLineas, descG, iva, margenTotal, total };
+  return { subtotal, descLineas, descG, iva, total };
 };
 
 const COLS_DEFAULT = { costo: true, margen: true, margenp: true, udm: false, plazo: false, subtotsin: false, totcon: true, imppct: false, iva: true };
@@ -147,8 +144,6 @@ export default function CotizacionForm() {
   const [plantillasObs, setPlantillasObs] = useState([]);
   const [showModalPlantillas, setShowModalPlantillas] = useState(false);
   const [confirmarMoneda, setConfirmarMoneda] = useState(null);
-  const [editandoProducto, setEditandoProducto] = useState(null);
-  const [formProducto, setFormProducto] = useState({});
   const [leadsContacto, setLeadsContacto] = useState([]);
   const [showLeads, setShowLeads] = useState(false);
   const [aprobando, setAprobando] = useState(false);
@@ -233,23 +228,16 @@ export default function CotizacionForm() {
     setConfirmarMoneda(nuevaMon);
   };
 
-  const ejecutarCambioMoneda = (revertirModificados = false) => {
+  const ejecutarCambioMoneda = () => {
     const nuevaMon = confirmarMoneda;
     setConfirmarMoneda(null);
     const tasaUsar = nuevaMon === "CRC" ? tasaVenta : tasaCompra;
     const convertir = (productos) => (productos || []).map(p => {
-      // Si tiene precio modificado y el usuario elige revertir → usar precio base
-      if (p.precioModificado && revertirModificados) {
-        return { ...p, precioVentaItem: p.precio, costoItem: p.costo, precioModificado: false };
-      }
-      const tl = tasaUsar;
+      const tl = Number(p.tasaIndividual || 0) || tasaUsar;
       const precioConvertido = nuevaMon === "CRC"
-        ? (Number(p.precioVentaItem ?? p.precio ?? 0) * tl).toFixed(2)
-        : (Number(p.precioVentaItem ?? p.precio ?? 0) / tl).toFixed(2);
-      const costoConvertido = nuevaMon === "CRC"
-        ? (Number(p.costoItem ?? p.costo ?? 0) * tl).toFixed(2)
-        : (Number(p.costoItem ?? p.costo ?? 0) / tl).toFixed(2);
-      return { ...p, precio: precioConvertido, precioVentaItem: precioConvertido, costoItem: costoConvertido };
+        ? (Number(p.precio || 0) * tl).toFixed(2)
+        : (Number(p.precio || 0) / tl).toFixed(2);
+      return { ...p, precio: precioConvertido };
     });
     const opciones = cot.opciones.map(op => ({
       ...op,
@@ -299,7 +287,7 @@ export default function CotizacionForm() {
     try {
       const opFinal = cot.opciones?.find(o => o.id === (cot.opcionElegida || cot.opcionActiva)) || cot.opciones?.[0];
       // Usar los mismos cálculos que muestra la cotización
-      const tots = calcOpcion(opFinal, cot.descuentoGlobal, cot.descuentoGlobalTipo, cot.ivaPct ?? 13);
+      const tots = calcOpcion(opFinal, cot.descuentoGlobal, cot.descuentoGlobalTipo);
       const sub = tots.subtotal;
       const descuento = tots.descLineas + tots.descG;
       const base = sub - descuento;
@@ -331,8 +319,6 @@ export default function CotizacionForm() {
         contactoNombre: cot.contactoNombre || "",
         leadId: cot.leadId || null,
         leadNombre: cot.leadNombre || "",
-        vendedorId: cot.vendedorId || "",
-        vendedorNombre: cot.vendedorNombre || "",
         moneda: cot.moneda,
         tasaVenta: tasaVenta || null,
         tasaCompra: tasaCompra || null,
@@ -358,26 +344,6 @@ export default function CotizacionForm() {
 
       await updateDoc(doc(db, 'cotizaciones', id), { facturaId: factRef.id, estado: "Facturada" });
       setCot(prev => ({ ...prev, facturaId: factRef.id, estado: "Facturada" }));
-
-      // Celebración de venta — obtener avatar del vendedor
-      let avatarVendedor = ''
-      if (cot.vendedorId) {
-        try { const uSnap = await getDoc(doc(db, 'usuarios', cot.vendedorId)); if (uSnap.exists()) avatarVendedor = uSnap.data().fotoURL || '' } catch {}
-      }
-      await addDoc(collection(db, "ventas_celebraciones"), {
-        tipo: 'ganada',
-        vendedorId: cot.vendedorId || '',
-        vendedorNombre: cot.vendedorNombre || cot.clienteNombre || '',
-        vendedorAvatar: avatarVendedor,
-        facturaId: factRef.id,
-        cotizacionId: id,
-        monto: total,
-        moneda: cot.moneda || 'USD',
-        creadoEn: serverTimestamp(),
-        reacciones: {},
-        visto: [],
-      }).catch(() => {})
-
       navigate(`/facturacion/${factRef.id}`);
     } catch (err) { console.error("Error creando factura:", err); alert("Error al crear factura: " + err.message); }
   };
@@ -440,20 +406,17 @@ export default function CotizacionForm() {
   const agregarProducto = (opId, prod) => {
     const op = cot.opciones.find(o => o.id === opId);
     const precio = getPrecioProducto(prod);
-    const costoBase = prod.precioCompra || prod.costo || 0;
     const linea = {
       _lid: genId(),
       productoId: prod.id,
       nombre: prod.nombre,
       descripcion: prod.descripcion || "",
-      costo: costoBase,
+      costo: prod.precioCompra || 0,
       precio,
-      costoItem: costoBase,
-      precioVentaItem: precio,
-      precioModificado: false,
       cantidad: 1,
       desc: 0,
       descTipo: "%",
+      ivaPct: 13,  // IVA por defecto 13% — el usuario puede cambiarlo por línea
       fichaId: prod.fichaId || null,
       fichaNombre: prod.fichaNombre || "",
     };
@@ -558,7 +521,7 @@ export default function CotizacionForm() {
   if (!cot) return <div style={{ padding:40, color:"#c00" }}>Cotización no encontrada.</div>;
 
   const opActiva = cot.opciones.find(o => o.id === cot.opcionActiva) || cot.opciones[0];
-  const totales = opActiva ? calcOpcion(opActiva, cot.descuentoGlobal, cot.descuentoGlobalTipo, cot.ivaPct ?? 13) : {};
+  const totales = opActiva ? calcOpcion(opActiva, cot.descuentoGlobal, cot.descuentoGlobalTipo) : {};
   const mon = cot.moneda || "USD";
   const tasaVenta = tasasGlobal?.venta || 0;
   const tasaCompra = tasasGlobal?.compra || 0;
@@ -619,7 +582,7 @@ export default function CotizacionForm() {
                   <p style={{ color:"#888", fontSize:12, marginBottom:16 }}>Selecciona la opción elegida por el cliente.</p>
                   <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
                     {cot.opciones.map(o => {
-                      const tot = calcOpcion(o, cot.descuentoGlobal, cot.descuentoGlobalTipo, cot.ivaPct ?? 13);
+                      const tot = calcOpcion(o, cot.descuentoGlobal, cot.descuentoGlobalTipo);
                       const sel = opElegida === o.id;
                       return (
                         <div key={o.id} onClick={() => setOpElegida(o.id)} style={{ border: sel ? "2px solid #0F6E56" : "1px solid #eaecf0", borderRadius:10, padding:"12px 16px", cursor:"pointer", background: sel ? "#f0faf6" : "#fff" }}>
@@ -678,7 +641,7 @@ export default function CotizacionForm() {
               {/* Paso: confirmar */}
               {pasosAprobacion[pasoAprobacion] === "confirmar" && (() => {
                 const opFinal = cot.opciones.find(o => o.id === opElegida) || cot.opciones[0];
-                const totFinal = calcOpcion(opFinal, cot.descuentoGlobal, cot.descuentoGlobalTipo, cot.ivaPct ?? 13);
+                const totFinal = calcOpcion(opFinal, cot.descuentoGlobal, cot.descuentoGlobalTipo);
                 const extraOpcionales = (opFinal?.productosOpcionales || []).filter(p => opcionalesElegidos[p._lid || p.nombre]).reduce((a, p) => a + Number(p.precio || 0), 0);
                 return (
                   <div>
@@ -706,55 +669,6 @@ export default function CotizacionForm() {
                   </div>
                 );
               })()}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal editar producto base */}
-      {editandoProducto && (() => {
-        const prod = productos.find(pr => pr.id === editandoProducto.productoId)
-        if (!prod && !formProducto.nombre) {
-          setFormProducto({ nombre: editandoProducto.nombre || '', descripcion: editandoProducto.descripcion || '', precioCompra: editandoProducto.costo || 0, precioVenta: editandoProducto.precio || 0 })
-        } else if (prod && !formProducto.nombre) {
-          setFormProducto({ nombre: prod.nombre || '', descripcion: prod.descripcion || '', precioCompra: prod.precioCompra || prod.costo || 0, precioVenta: prod.precioVenta || prod.precio || 0 })
-        }
-        return null
-      })()}
-      {editandoProducto && formProducto.nombre !== undefined && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", backdropFilter:"blur(3px)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={e => e.target === e.currentTarget && (() => { setEditandoProducto(null); setFormProducto({}) })()}>
-          <div style={{ background:"#fff", borderRadius:14, width:"90%", maxWidth:440, boxShadow:"0 20px 60px rgba(0,0,0,.2)", overflow:"hidden" }}>
-            <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0f2f5", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div>
-                <div style={{ fontWeight:700, fontSize:15 }}>Editar producto base</div>
-                <div style={{ fontSize:11, color:"#888" }}>Cambios se guardan en el catálogo de productos</div>
-              </div>
-              <button onClick={() => { setEditandoProducto(null); setFormProducto({}) }} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:"#aaa" }}>×</button>
-            </div>
-            <div style={{ padding:"16px 20px", display:"flex", flexDirection:"column", gap:12 }}>
-              <div><label style={s.lbl}>Nombre</label><input style={s.inp} value={formProducto.nombre || ''} onChange={e => setFormProducto(f => ({...f, nombre: e.target.value}))} /></div>
-              <div><label style={s.lbl}>Descripción</label><textarea style={{...s.inp, minHeight:50, resize:"vertical"}} value={formProducto.descripcion || ''} onChange={e => setFormProducto(f => ({...f, descripcion: e.target.value}))} /></div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                <div><label style={s.lbl}>Costo (USD)</label><input style={s.inp} type="number" step="0.01" value={formProducto.precioCompra || ''} onChange={e => setFormProducto(f => ({...f, precioCompra: e.target.value}))} /></div>
-                <div><label style={s.lbl}>Precio venta (USD)</label><input style={s.inp} type="number" step="0.01" value={formProducto.precioVenta || ''} onChange={e => setFormProducto(f => ({...f, precioVenta: e.target.value}))} /></div>
-              </div>
-            </div>
-            <div style={{ padding:"14px 20px", borderTop:"1px solid #f0f2f5", display:"flex", gap:8, justifyContent:"flex-end" }}>
-              <button onClick={() => { setEditandoProducto(null); setFormProducto({}) }} style={{ padding:"8px 16px", border:"1px solid #dde3ed", borderRadius:8, fontSize:12, cursor:"pointer", background:"#f5f5f5", fontFamily:"inherit" }}>Cancelar</button>
-              <button onClick={async () => {
-                if (!editandoProducto.productoId) return
-                try {
-                  await updateDoc(doc(db, 'productos', editandoProducto.productoId), {
-                    nombre: formProducto.nombre, descripcion: formProducto.descripcion,
-                    precioCompra: Number(formProducto.precioCompra || 0), precioVenta: Number(formProducto.precioVenta || 0),
-                    precio: Number(formProducto.precioVenta || 0),
-                  })
-                  setProductos(prev => prev.map(pr => pr.id === editandoProducto.productoId ? {...pr, ...formProducto, precioCompra: Number(formProducto.precioCompra||0), precioVenta: Number(formProducto.precioVenta||0), precio: Number(formProducto.precioVenta||0)} : pr))
-                  setEditandoProducto(null); setFormProducto({})
-                } catch(err) { alert('Error: ' + err.message) }
-              }} style={{ padding:"8px 20px", border:"none", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer", background:"var(--eco-primary,#1a3a5c)", color:"#fff", fontFamily:"inherit" }}>
-                Guardar en catálogo
-              </button>
             </div>
           </div>
         </div>
@@ -790,38 +704,28 @@ export default function CotizacionForm() {
         </div>
       )}
 
-      {confirmarMoneda && (() => {
-        const tieneModificados = cot.opciones.some(op => (op.productos || []).some(p => p.precioModificado))
-        return (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", backdropFilter:"blur(3px)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={e => e.target === e.currentTarget && setConfirmarMoneda(null)}>
-            <div style={{ background:"#fff", borderRadius:14, width:"90%", maxWidth:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)", overflow:"hidden" }}>
-              <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0f2f5", display:"flex", alignItems:"center", gap:10 }}>
-                <span style={{ fontSize:22 }}>💱</span>
-                <span style={{ fontWeight:700, fontSize:15 }}>Cambiar moneda</span>
-              </div>
-              <div style={{ padding:"18px 20px", fontSize:13, color:"#555", lineHeight:1.6 }}>
-                <p style={{ margin:"0 0 10px" }}>Se convertirán los precios de <b>{mon}</b> a <b>{confirmarMoneda}</b>.</p>
-                <p style={{ margin:"0 0 10px" }}>
-                  Tasa: <b>₡{(confirmarMoneda === "CRC" ? tasaVenta : tasaCompra).toFixed(2)}</b>
-                  {" "}({confirmarMoneda === "CRC" ? "venta" : "compra"})
-                </p>
-                {tieneModificados && (
-                  <div style={{ background:"#FFF8E1", border:"1px solid #EDD98A", borderRadius:7, padding:"10px 12px", marginTop:10, fontSize:12, color:"#854F0B" }}>
-                    ⚠️ Hay productos con precios modificados manualmente. Podés convertirlos o revertirlos al precio base del catálogo.
-                  </div>
-                )}
-              </div>
-              <div style={{ padding:"14px 20px", borderTop:"1px solid #f0f2f5", display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap" }}>
-                <button onClick={() => setConfirmarMoneda(null)} style={{ padding:"8px 16px", border:"1px solid #dde3ed", borderRadius:8, fontSize:12, cursor:"pointer", background:"#f5f5f5", fontFamily:"inherit" }}>Cancelar</button>
-                {tieneModificados && (
-                  <button onClick={() => ejecutarCambioMoneda(true)} style={{ padding:"8px 16px", border:"1px solid #EDD98A", borderRadius:8, fontSize:12, fontWeight:500, cursor:"pointer", background:"#FFF8E1", color:"#854F0B", fontFamily:"inherit" }}>Revertir al base</button>
-                )}
-                <button onClick={() => ejecutarCambioMoneda(false)} style={{ padding:"8px 20px", border:"none", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer", background:"var(--eco-primary,#1a3a5c)", color:"#fff", fontFamily:"inherit" }}>Convertir</button>
-              </div>
+      {confirmarMoneda && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", backdropFilter:"blur(3px)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={e => e.target === e.currentTarget && setConfirmarMoneda(null)}>
+          <div style={{ background:"#fff", borderRadius:14, width:"90%", maxWidth:400, boxShadow:"0 20px 60px rgba(0,0,0,.2)", overflow:"hidden" }}>
+            <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0f2f5", display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:22 }}>💱</span>
+              <span style={{ fontWeight:700, fontSize:15 }}>Cambiar moneda</span>
+            </div>
+            <div style={{ padding:"18px 20px", fontSize:13, color:"#555", lineHeight:1.6 }}>
+              <p style={{ margin:"0 0 10px" }}>Todos los precios de la cotización se convertirán de <b>{mon}</b> a <b>{confirmarMoneda}</b>.</p>
+              <p style={{ margin:"0 0 10px" }}>
+                Tasa a usar: <b>₡{(confirmarMoneda === "CRC" ? tasaVenta : tasaCompra).toFixed(2)}</b>
+                {" "}({confirmarMoneda === "CRC" ? "venta" : "compra"})
+              </p>
+              <p style={{ margin:0, fontSize:12, color:"#999" }}>Esta acción modificará los precios de todos los productos.</p>
+            </div>
+            <div style={{ padding:"14px 20px", borderTop:"1px solid #f0f2f5", display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={() => setConfirmarMoneda(null)} style={{ padding:"8px 16px", border:"1px solid #dde3ed", borderRadius:8, fontSize:12, cursor:"pointer", background:"#f5f5f5", fontFamily:"inherit" }}>Cancelar</button>
+              <button onClick={ejecutarCambioMoneda} style={{ padding:"8px 20px", border:"none", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer", background:"var(--eco-primary,#1a3a5c)", color:"#fff", fontFamily:"inherit" }}>Sí, convertir</button>
             </div>
           </div>
-        )
-      })()}
+        </div>
+      )}
 
       {showModalPlantillas && (
         <ModalPlantillas plantillas={plantillasObs}
@@ -1020,14 +924,6 @@ export default function CotizacionForm() {
 
         {opActiva && (<>
 
-          {/* ── IVA global ── */}
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-            <span style={{ fontSize:11, fontWeight:600, color:"#888", textTransform:"uppercase", letterSpacing:".5px" }}>IVA aplicado:</span>
-            {[{ v:13, l:"13%" }, { v:4, l:"4%" }, { v:0, l:"0%" }].map(o => (
-              <button key={o.v} onClick={() => upd("ivaPct", o.v)} style={{ padding:"4px 12px", borderRadius:6, border:`1.5px solid ${(cot.ivaPct ?? 13) === o.v ? "#185FA5" : "#dde3ed"}`, background:(cot.ivaPct ?? 13) === o.v ? "#E6F1FB" : "#fff", color:(cot.ivaPct ?? 13) === o.v ? "#185FA5" : "#888", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>{o.l}</button>
-            ))}
-          </div>
-
           {/* ── Tabla de productos incluidos ── */}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={e => {
             const { active, over } = e;
@@ -1048,8 +944,10 @@ export default function CotizacionForm() {
                   <th style={{ ...s.th, textAlign:"center", width:70 }}>Cant.</th>
                   <th style={{ ...s.th, color:"#185FA5" }}>Precio costo</th>
                   <th style={s.th}>Precio venta</th>
+                  {cols.margen  && <th style={{ ...s.th, color:"#3B6D11" }}>Margen $</th>}
+                  {cols.margenp && <th style={{ ...s.th, color:"#3B6D11" }}>Margen %</th>}
                   <th style={s.th}>Desc.</th>
-                  {cols.margen && <th style={{ ...s.th, color:"#3B6D11" }}>Margen</th>}
+                  {cols.iva     && <th style={{ ...s.th, textAlign:"center" }}>IVA</th>}
                   {cols.totcon  && <th style={{ ...s.th, textAlign:"right", paddingRight:14 }}>Total c/IVA</th>}
                   <th style={{ ...s.th, width:36 }}></th>
                 </tr>
@@ -1063,31 +961,28 @@ export default function CotizacionForm() {
                     </td>
                   </tr>
                 ) : (opActiva.productos || []).map((p, idx) => {
-                  const calc = calcLinea(p, cot.ivaPct ?? 13);
-                  const costoItem = Number(p.costoItem ?? p.costo ?? 0);
-                  const precioItem = Number(p.precioVentaItem ?? p.precio ?? 0);
+                  const calc = calcLinea(p);
+                  const margenAbs = Number(p.precio || 0) - Number(p.costo || 0);
+                  const margenPct = Number(p.precio || 0) > 0 ? Math.round((margenAbs / Number(p.precio || 0)) * 100) : 0;
+                  const ivaPct    = p.ivaPct ?? 13;
                   return (
                     <SortableRow key={p._lid} id={p._lid}>
                       <td style={{ ...s.td, textAlign:"center", paddingLeft:12 }}>
                         <input type="checkbox" defaultChecked style={{ width:13, height:13, accentColor:"var(--eco-primary,#1a3a5c)", cursor:"pointer" }} />
                       </td>
                       <td style={s.td}>
-                        <div style={{ display:"flex", alignItems:"center", gap:4 }}>
-                          <span style={{ fontWeight:500 }}>{p.nombre}</span>
-                          {p.productoId && <button onClick={e => { e.stopPropagation(); setEditandoProducto(p) }} style={{ background:"none", border:"none", cursor:"pointer", color:"#bbb", fontSize:12, padding:"0 2px" }} title="Editar producto base">→</button>}
-                        </div>
+                        <div style={{ fontWeight:500 }}>{p.nombre}</div>
                         {p.descripcion && <div style={{ fontSize:11, color:"#aaa", marginTop:2 }}>{p.descripcion}</div>}
-                        {p.precioModificado && <div style={{ fontSize:9, color:"#E65100", marginTop:1 }}>Precio modificado</div>}
                       </td>
                       <td style={{ ...s.td, textAlign:"center" }}>
                         <input style={{ ...s.miniInp, width:52, textAlign:"center" }} value={p.cantidad} onChange={e => updLinea(opActiva.id, p._lid, "cantidad", e.target.value)} />
                       </td>
+                      <td style={{ ...s.td, color:"#888", fontSize:12 }}>{sym(mon)}{fmtN(Number(p.costo || 0))}</td>
                       <td style={s.td}>
-                        <input style={{ ...s.miniInp, width:84, color:"#185FA5" }} value={p.costoItem ?? p.costo ?? ''} onChange={e => { const v = e.target.value; const ops2 = cot.opciones.map(o => o.id === opActiva.id ? { ...o, productos: o.productos.map(pp => pp._lid === p._lid ? { ...pp, costoItem: v, precioModificado: true } : pp) } : o); setCot(c => ({ ...c, opciones: ops2 })); guardar() }} />
+                        <input style={{ ...s.miniInp, width:84 }} value={p.precio} onChange={e => updLinea(opActiva.id, p._lid, "precio", e.target.value)} />
                       </td>
-                      <td style={s.td}>
-                        <input style={{ ...s.miniInp, width:84 }} value={p.precioVentaItem ?? p.precio ?? ''} onChange={e => { const v = e.target.value; const ops2 = cot.opciones.map(o => o.id === opActiva.id ? { ...o, productos: o.productos.map(pp => pp._lid === p._lid ? { ...pp, precioVentaItem: v, precio: v, precioModificado: true } : pp) } : o); setCot(c => ({ ...c, opciones: ops2 })); guardar() }} />
-                      </td>
+                      {cols.margen  && <td style={{ ...s.td, color:"#3B6D11", fontWeight:500 }}>${fmtN(margenAbs)}</td>}
+                      {cols.margenp && <td style={{ ...s.td, color: margenPct >= 0 ? "#3B6D11" : "#E24B4A", fontWeight:500 }}>{margenPct}%</td>}
                       <td style={s.td}>
                         <div style={{ display:"flex", gap:3, alignItems:"center" }}>
                           <input style={{ ...s.miniInp, width:40, textAlign:"center" }} value={p.desc || 0} onChange={e => updLinea(opActiva.id, p._lid, "desc", e.target.value)} />
@@ -1096,7 +991,16 @@ export default function CotizacionForm() {
                           </select>
                         </div>
                       </td>
-                      {cols.margen && <td style={{ ...s.td, color: calc.margen >= 0 ? "#3B6D11" : "#E24B4A", fontWeight:500 }}>{fmtN(calc.margen)}</td>}
+                      {cols.iva && (
+                        <td style={{ ...s.td, textAlign:"center" }}>
+                          <select
+                            style={{ ...s.miniInp, width:58, padding:"4px 5px", textAlign:"center", fontWeight:600, color: ivaPct === 0 ? "#888" : "#185FA5", background: ivaPct === 0 ? "#f5f5f5" : "#E6F1FB", border:`1px solid ${ivaPct === 0 ? "#ddd" : "#b8d6f5"}`, borderRadius:6 }}
+                            value={ivaPct}
+                            onChange={e => updLinea(opActiva.id, p._lid, "ivaPct", Number(e.target.value))}>
+                            {IVA_OPCIONES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                        </td>
+                      )}
                       {cols.totcon && <td style={{ ...s.td, textAlign:"right", paddingRight:14, fontWeight:700, color:"var(--eco-primary,#1a3a5c)" }}>{sym(mon)}{fmtN(calc.total)}</td>}
                       <td style={{ ...s.td, textAlign:"center" }}>
                         <button style={{ background:"none", border:"none", cursor:"pointer", color:"#ddd", fontSize:16, lineHeight:1, padding:"2px 4px", borderRadius:4 }}
@@ -1340,12 +1244,6 @@ export default function CotizacionForm() {
                   <span>{sym(mon)}{fmtN(totales.total)}</span>
                 </div>
               </div>
-              {cols.margen && totales.margenTotal != null && (
-                <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, fontSize:13, paddingTop:8, borderTop:"1px dashed #e0e4ea" }}>
-                  <span style={{ color:"#3B6D11", fontWeight:600 }}>Margen total</span>
-                  <span style={{ color: totales.margenTotal >= 0 ? "#3B6D11" : "#E24B4A", fontWeight:700 }}>{sym(mon)}{fmtN(totales.margenTotal)}</span>
-                </div>
-              )}
               <div style={{ marginTop:12, border:"0.5px dashed rgba(0,0,0,.12)", borderRadius:8, padding:"8px 10px", background:"#fff" }}>
                 <p style={{ fontSize:10, fontWeight:500, color:"#bbb", textTransform:"uppercase", letterSpacing:".5px", marginBottom:4 }}>Equiv. {monContraria}</p>
                 <p style={{ fontSize:14, fontWeight:600, color:"#555" }}>

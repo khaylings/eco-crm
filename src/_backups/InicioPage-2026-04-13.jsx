@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { collection, getDocs, getDoc, doc, query, where, orderBy, Timestamp } from 'firebase/firestore'
+import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -193,7 +193,6 @@ export default function InicioPage() {
   const [fechaHasta,     setFechaHasta]     = useState('')
   const [vendedorFiltro, setVendedorFiltro] = useState('todos')
   const [vendedores,     setVendedores]     = useState([])
-  const [tc,             setTc]             = useState({ venta: 520, compra: 520 })
   const [secciones,      setSecciones]      = useState(SECCIONES_DEFAULT)
   const [configOpen,     setConfigOpen]     = useState(false)
   const [datos,          setDatos]          = useState(null)
@@ -216,9 +215,6 @@ export default function InicioPage() {
   }, [uid])
 
   useEffect(() => { if (uid) cargar() }, [uid, periodo, fechaDesde, fechaHasta, vendedorFiltro])
-  useEffect(() => { getDoc(doc(db, 'configuracion', 'tasas')).then(snap => { if (snap.exists()) setTc({ venta: Number(snap.data().venta || 520), compra: Number(snap.data().compra || 520) }) }).catch(() => {}) }, [])
-
-  const toUSD = (monto, moneda) => { if (!monto) return 0; return moneda === 'USD' ? Number(monto) : Number(monto) / (tc.venta || 520) }
 
   const cargar = async () => {
     if (!uid) return
@@ -251,12 +247,12 @@ export default function InicioPage() {
       cotsAceptadas.forEach(d => {
         const c = d.data()
         const total = calcTotalCot(c)
-        ventasMes += toUSD(total, c.moneda)
+        ventasMes += c.moneda === 'CRC' ? total / Number(c.tasa || 519.5) : total
       })
 
       let facturadoSinIva = 0, porCobrarMonto = 0
-      factPeriodoSnap.docs?.forEach(d => { const f = d.data(); facturadoSinIva += toUSD(baseSinIva(f), f.moneda) })
-      factPendSnap.docs?.forEach(d => { const f = d.data(); porCobrarMonto += toUSD(Number(f.saldo || f.total || 0), f.moneda) })
+      factPeriodoSnap.docs?.forEach(d => { facturadoSinIva += baseSinIva(d.data()) })
+      factPendSnap.docs?.forEach(d => { porCobrarMonto += Number(d.data().saldo || d.data().total || 0) })
 
       const cerrados = (ganadosSnap.size || 0) + (perdidosSnap.size || 0)
       const tasaConversion = cerrados > 0 ? Math.round((ganadosSnap.size / cerrados) * 100) : 0

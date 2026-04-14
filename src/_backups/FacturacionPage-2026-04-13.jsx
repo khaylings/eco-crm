@@ -9,19 +9,10 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../../../firebase/config'
 import { useNavigate } from 'react-router-dom'
 import { usePermisos } from '../../../hooks/usePermisos'
-import ResizableTable from '../../../shared/components/ResizableTable'
-
-const fmtUSD = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const fmtCRC = (n) => '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
-const toUSD_cobrar = (monto, moneda, tc) => {
-  if (!monto) return 0
-  if (moneda === 'USD') return Number(monto)
-  return Number(monto) / (tc?.venta || tc || 520)
-}
 
 const ESTADO_CONFIG = {
   'Sin Pagar':  { bg: '#FCEBEB', color: '#A32D2D', dot: '#E24B4A' },
@@ -83,9 +74,6 @@ export default function FacturacionPage() {
   const [filtroEstado, setFiltroEstado]   = useState('Todos')
   const [busqueda, setBusqueda]           = useState('')
   const [verSoloMias, setVerSoloMias]     = useState(!puedeVerTodas)
-  const [tc, setTc]                       = useState({ venta: 520, compra: 520 })
-  const [cols, setCols]                   = useState({ moneda: true, totalOrig: true, totalUSD: true, saldoOrig: true, saldoUSD: true, vendedor: true, origen: true })
-  const [showCols, setShowCols]           = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'facturas'), orderBy('creadoEn', 'desc'))
@@ -97,31 +85,30 @@ export default function FacturacionPage() {
       }))
       setLoading(false)
     })
-    const unsub2 = onSnapshot(doc(db, 'configuracion', 'tasas'), snap => {
-      if (snap.exists()) setTc({ venta: Number(snap.data().venta || 520), compra: Number(snap.data().compra || 520) })
-    })
-    return () => { unsub(); unsub2() }
+    return unsub
   }, [])
 
   const metricas = useMemo(() => {
     if (!puedeVerPrecios) return null
     const inicioMes = new Date(); inicioMes.setDate(1); inicioMes.setHours(0,0,0,0)
-    const pendientes = facturas.filter(f => f.estadoCalculado === 'Sin Pagar' || f.estadoCalculado === 'Parcial')
-    const porCobrarCRC = pendientes.filter(f => f.moneda === 'CRC').reduce((s, f) => s + Number(f.saldo || 0), 0)
-    const porCobrarUSD = pendientes.filter(f => f.moneda !== 'CRC').reduce((s, f) => s + Number(f.saldo || 0), 0)
-    const porCobrarTotal = pendientes.reduce((s, f) => s + toUSD_cobrar(f.saldo || 0, f.moneda, tc), 0)
-    const vencidas = pendientes.filter(f => { const d = diasRestantes(f.fechaVencimiento); return d !== null && d < 0 })
-    const vencido = vencidas.reduce((s, f) => s + toUSD_cobrar(f.saldo || 0, f.moneda, tc), 0)
-    let cobradoMes = 0
+    let totalFacturado = 0, porCobrar = 0, vencido = 0, cobradoMes = 0
     facturas.forEach(f => {
+      totalFacturado += Number(f.total || 0)
+      const est   = f.estadoCalculado
+      const saldo = Number(f.saldo || 0)
+      if (est === 'Sin Pagar' || est === 'Parcial') {
+        porCobrar += saldo
+        const dias = diasRestantes(f.fechaVencimiento)
+        if (dias !== null && dias < 0) vencido += saldo
+      }
       ;(f.pagos || []).forEach(p => {
         if (!p.fecha) return
         const fp = new Date(p.fecha + 'T00:00:00')
-        if (fp >= inicioMes) cobradoMes += toUSD_cobrar(p.monto, f.moneda, tc)
+        if (fp >= inicioMes) cobradoMes += Number(p.monto || 0)
       })
     })
-    return { porCobrarCRC, porCobrarUSD, porCobrarTotal, vencido, vencidasN: vencidas.length, cobradoMes, total: facturas.length, pendientesN: pendientes.length }
-  }, [facturas, puedeVerPrecios, tc])
+    return { totalFacturado, porCobrar, vencido, cobradoMes }
+  }, [facturas, puedeVerPrecios])
 
   const filtradas = useMemo(() => facturas.filter(f => {
     const esPropia = f.vendedorId === usuario?.uid || !f.vendedorId
@@ -164,11 +151,10 @@ export default function FacturacionPage() {
       {/* Métricas */}
       {metricas && (
         <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-          <MetricaCard label="Por cobrar ₡"     valor={fmtCRC(metricas.porCobrarCRC)} color="#854F0B" />
-          <MetricaCard label="Por cobrar $"     valor={fmtUSD(metricas.porCobrarUSD)} color="#185FA5" />
-          <MetricaCard label="Por cobrar Total" valor={fmtUSD(metricas.porCobrarTotal)} color="var(--eco-primary, #1a3a5c)" />
-          <MetricaCard label="Vencido"          valor={fmtUSD(metricas.vencido)}       color="#A32D2D" />
-          <MetricaCard label="Cobrado este mes" valor={fmtUSD(metricas.cobradoMes)}    color="#3B6D11" />
+          <MetricaCard label="Total facturado"  valor={fmt(metricas.totalFacturado)} />
+          <MetricaCard label="Por cobrar"       valor={fmt(metricas.porCobrar)}       color="#185FA5" />
+          <MetricaCard label="Vencido"          valor={fmt(metricas.vencido)}         color="#A32D2D" />
+          <MetricaCard label="Cobrado este mes" valor={fmt(metricas.cobradoMes)}      color="#3B6D11" />
         </div>
       )}
 
@@ -191,27 +177,6 @@ export default function FacturacionPage() {
               }}>{e}</button>
             ))}
           </div>
-          <div style={{ marginLeft: 'auto', position: 'relative' }}>
-            <button onClick={() => setShowCols(v => !v)} style={s.btnSm}>⚙ Columnas</button>
-            {showCols && (
-              <div style={{ position: 'absolute', right: 0, top: '110%', background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, zIndex: 30, minWidth: 180, padding: '6px 0', boxShadow: '0 8px 24px rgba(0,0,0,.1)' }}>
-                {[
-                  { key: 'moneda', label: 'Moneda' },
-                  { key: 'totalOrig', label: 'Total original' },
-                  { key: 'totalUSD', label: 'Total USD' },
-                  { key: 'saldoOrig', label: 'Saldo original' },
-                  { key: 'saldoUSD', label: 'Saldo USD' },
-                  { key: 'vendedor', label: 'Vendedor' },
-                  { key: 'origen', label: 'Origen' },
-                ].map(o => (
-                  <label key={o.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={cols[o.key]} onChange={e => setCols(c => ({ ...c, [o.key]: e.target.checked }))} style={{ accentColor: 'var(--eco-primary)', width: 13, height: 13 }} />
-                    {o.label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
         {loading ? (
@@ -223,20 +188,20 @@ export default function FacturacionPage() {
               : 'Sin resultados para ese filtro.'}
           </div>
         ) : (
-          <ResizableTable thStyle={s.th} columns={[
-            { key: 'num', label: '#', width: 80 },
-            { key: 'cliente', label: 'Cliente / Empresa', width: 180 },
-            ...(cols.moneda ? [{ key: 'moneda', label: 'Moneda', width: 70 }] : []),
-            ...(cols.origen ? [{ key: 'origen', label: 'Origen', width: 100 }] : []),
-            ...(cols.vendedor ? [{ key: 'vendedor', label: 'Vendedor', width: 120 }] : []),
-            ...(puedeVerPrecios && cols.totalOrig ? [{ key: 'total', label: 'Total', width: 110 }] : []),
-            ...(puedeVerPrecios && cols.totalUSD ? [{ key: 'totalUSD', label: 'Total USD', width: 110, thStyle: { ...s.th, color: '#185FA5' } }] : []),
-            ...(puedeVerPrecios && cols.saldoOrig ? [{ key: 'saldo', label: 'Saldo', width: 110 }] : []),
-            ...(puedeVerPrecios && cols.saldoUSD ? [{ key: 'saldoUSD', label: 'Saldo USD', width: 110, thStyle: { ...s.th, color: '#A32D2D' } }] : []),
-            { key: 'estado', label: 'Estado', width: 110 },
-            { key: 'venc', label: 'Vencimiento', width: 130 },
-            { key: 'acc', label: '', width: 60 },
-          ]}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={s.th}>#</th>
+                <th style={s.th}>Cliente / Empresa</th>
+                <th style={s.th}>Origen</th>
+                <th style={s.th}>Vendedor</th>
+                {puedeVerPrecios && <th style={s.th}>Total</th>}
+                {puedeVerPrecios && <th style={s.th}>Saldo</th>}
+                <th style={s.th}>Estado</th>
+                <th style={s.th}>Vencimiento</th>
+                <th style={s.th}></th>
+              </tr>
+            </thead>
             <tbody>
               {filtradas.map(f => {
                 const est  = f.estadoCalculado
@@ -244,31 +209,40 @@ export default function FacturacionPage() {
                 const dias = diasRestantes(f.fechaVencimiento)
                 const vencida = (est === 'Sin Pagar' || est === 'Parcial') && dias !== null && dias < 0
                 const proxima = !vencida && (est === 'Sin Pagar' || est === 'Parcial') && dias !== null && dias <= 5
+
                 return (
                   <tr key={f.id} style={{ cursor: 'pointer' }}
                     onClick={() => navigate(`/facturacion/${f.id}`)}
                     onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    onMouseLeave={e => e.currentTarget.style.background = ''}
+                  >
                     <td style={{ ...s.td, color: '#888', fontSize: 12, fontFamily: 'monospace' }}>{f.numero}</td>
-                    <td style={{ ...s.td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <span style={{ fontWeight: 500 }}>{f.clienteNombre || '—'}</span>
-                      {f.facturarEmpresa && f.empresaNombre && <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>{f.empresaNombre}</span>}
+                    <td style={s.td}>
+                      <p style={{ fontWeight: 500, margin: 0, marginBottom: f.empresaNombre ? 2 : 0 }}>{f.clienteNombre || '—'}</p>
+                      {f.facturarEmpresa && f.empresaNombre && <p style={{ fontSize: 11, color: '#888', margin: 0 }}>{f.empresaNombre}</p>}
                     </td>
-                    {cols.moneda && <td style={{ ...s.td, fontSize: 11 }}><span style={{ padding: '1px 6px', borderRadius: 10, background: f.moneda === 'USD' ? '#E6F1FB' : '#FAEEDA', color: f.moneda === 'USD' ? '#185FA5' : '#854F0B', fontWeight: 600, fontSize: 10 }}>{f.moneda || 'USD'}</span></td>}
-                    {cols.origen && <td style={{ ...s.td, fontSize: 12 }}>
+                    <td style={{ ...s.td, fontSize: 12 }}>
                       {f.cotizacionNumero ? (
                         <span style={{ color: '#185FA5', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
-                          onClick={e => { e.stopPropagation(); navigate(`/ventas/cotizacion/${f.cotizacionId}`) }}>{f.cotizacionNumero}</span>
+                          onClick={e => { e.stopPropagation(); navigate(`/ventas/cotizacion/${f.cotizacionId}`) }}
+                          title="Ver cotización origen">
+                          {f.cotizacionNumero}
+                        </span>
                       ) : f.proyectoNumero ? (
                         <span style={{ color: '#3B6D11', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
-                          onClick={e => { e.stopPropagation(); navigate(`/proyectos/${f.proyectoId}`) }}>{f.proyectoNumero}</span>
+                          onClick={e => { e.stopPropagation(); navigate(`/proyectos/${f.proyectoId}`) }}
+                          title="Ver proyecto origen">
+                          {f.proyectoNumero}
+                        </span>
                       ) : <span style={{ color: '#bbb' }}>—</span>}
-                    </td>}
-                    {cols.vendedor && <td style={{ ...s.td, color: '#666', fontSize: 12 }}>{f.vendedorNombre || '—'}</td>}
-                    {puedeVerPrecios && cols.totalOrig && <td style={{ ...s.td, fontWeight: 500 }}>{fmt(f.total, f.moneda)}</td>}
-                    {puedeVerPrecios && cols.totalUSD && <td style={{ ...s.td, fontWeight: 500, color: '#185FA5' }}>{fmtUSD(toUSD_cobrar(f.total, f.moneda, tc))}</td>}
-                    {puedeVerPrecios && cols.saldoOrig && <td style={{ ...s.td, fontWeight: 600, color: Number(f.saldo) <= 0 ? '#ccc' : '#A32D2D' }}>{Number(f.saldo) <= 0 ? '—' : fmt(f.saldo, f.moneda)}</td>}
-                    {puedeVerPrecios && cols.saldoUSD && <td style={{ ...s.td, fontWeight: 700, color: Number(f.saldo) <= 0 ? '#ccc' : '#A32D2D' }}>{Number(f.saldo) <= 0 ? '—' : fmtUSD(toUSD_cobrar(f.saldo, f.moneda, tc))}</td>}
+                    </td>
+                    <td style={{ ...s.td, color: '#666' }}>{f.vendedorNombre || '—'}</td>
+                    {puedeVerPrecios && <td style={{ ...s.td, fontWeight: 500 }}>{fmt(f.total, f.moneda)}</td>}
+                    {puedeVerPrecios && (
+                      <td style={{ ...s.td, fontWeight: 500, color: Number(f.saldo) <= 0 ? '#3B6D11' : '#A32D2D' }}>
+                        {Number(f.saldo) <= 0 ? <span style={{ color: '#ccc' }}>—</span> : fmt(f.saldo, f.moneda)}
+                      </td>
+                    )}
                     <td style={s.td}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 500, background: cfg.bg, color: cfg.color }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: cfg.dot, flexShrink: 0 }} />
@@ -291,7 +265,7 @@ export default function FacturacionPage() {
                 )
               })}
             </tbody>
-          </ResizableTable>
+          </table>
         )}
       </div>
     </div>

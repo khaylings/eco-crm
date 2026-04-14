@@ -34,6 +34,7 @@ const TIPOS_ACTIVIDAD = [
   { valor: 'reunion',    label: '👥 Reunión',    color: '#3C3489', bg: '#EEEDFE', border: '#AFA9EC' },
   { valor: 'visita',     label: '🚗 Visita',     color: '#27500A', bg: '#EAF3DE', border: '#97C459' },
   { valor: 'tarea',      label: '✅ Tarea',      color: '#633806', bg: '#FAEEDA', border: '#EF9F27' },
+  { valor: 'cotizacion', label: '📄 Cotización', color: '#085041', bg: '#E1F5EE', border: '#5DCAA5' },
   { valor: 'incidencia', label: '⚠️ Incidencia', color: '#791F1F', bg: '#FCEBEB', border: '#F09595' },
   { valor: 'garantia',   label: '🛡️ Garantía',  color: '#444441', bg: '#F1EFE8', border: '#B4B2A9' },
   { valor: 'evento',     label: '📅 Evento',     color: '#0C447C', bg: '#E6F1FB', border: '#85B7EB' },
@@ -205,7 +206,6 @@ export default function FichaLeadPage() {
 
   const [tabChat, setTabChat] = useState('interno')
   const [tabAbajo, setTabAbajo] = useState('observaciones')
-  const [cotizacionesLead, setCotizacionesLead] = useState([])
   const [waNumActivo, setWaNumActivo] = useState(null)
   const [msgInput, setMsgInput] = useState('')
   const [chatOps, setChatOps] = useState([])
@@ -282,14 +282,6 @@ export default function FichaLeadPage() {
   }, [lead?.contactoId, id])
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, [notas, tabChat, waNumActivo])
-
-  // Cotizaciones del lead
-  useEffect(() => {
-    if (!id) return
-    getDocs(query(collection(db, 'cotizaciones'), where('leadId', '==', id))).then(snap => {
-      setCotizacionesLead(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    }).catch(() => {})
-  }, [id])
 
   // Chat operaciones
   useEffect(() => {
@@ -651,7 +643,6 @@ export default function FichaLeadPage() {
                 { k:'adjuntos',      label:`Adjuntos (${adjuntos.length})` },
                 { k:'activos',       label:`Activos (${activosCliente.length})` },
                 { k:'leads',         label:`Leads (${leadsCliente.length})` },
-                { k:'cotizaciones',  label:`Cotizaciones (${cotizacionesLead.length})` },
               ].map(t => (
                 <button key={t.k} onClick={() => setTabAbajo(t.k)} style={{ padding:'6px 10px', fontSize:10, border:'none', background:'none', color:tabAbajo===t.k?'#185FA5':'#aaa', borderBottom:tabAbajo===t.k?'2px solid #185FA5':'2px solid transparent', fontWeight:tabAbajo===t.k?500:400, cursor:'pointer', whiteSpace:'nowrap', marginBottom:-1, fontFamily:'inherit' }}>
                   {t.label}
@@ -729,39 +720,6 @@ export default function FichaLeadPage() {
                             <div style={{ flex:1 }}>
                               <div style={{ fontSize:12, fontWeight:500 }}>{l.nombre}</div>
                               <div style={{ fontSize:10, color:'#aaa', marginTop:1 }}>{col?.nombre||'—'}</div>
-                            </div>
-                            <span style={{ fontSize:12, color:'#bbb' }}>›</span>
-                          </div>
-                        )
-                      })
-                  }
-                </div>
-              )}
-              {tabAbajo === 'cotizaciones' && (
-                <div>
-                  {cotizacionesLead.length === 0
-                    ? <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>Sin cotizaciones vinculadas</div>
-                    : cotizacionesLead.map(c => {
-                        const estColors = { Borrador:'#5F5E5A', Enviada:'#185FA5', Vista:'#3C3489', Aceptada:'#3B6D11', Rechazada:'#A32D2D', Facturada:'#185FA5' }
-                        const estBg = { Borrador:'#F1EFE8', Enviada:'#E6F1FB', Vista:'#EEEDFE', Aceptada:'#EAF3DE', Rechazada:'#FCEBEB', Facturada:'#E6F1FB' }
-                        const mon = c.moneda || 'USD'
-                        const sym = mon === 'USD' ? '$' : '₡'
-                        const total = c.opciones?.reduce((best, op) => {
-                          const t = (op.productos || []).reduce((s, p) => s + Number(p.precioVentaItem || p.precio || 0) * Number(p.cantidad || 1), 0)
-                          return t > best ? t : best
-                        }, 0) || 0
-                        return (
-                          <div key={c.id} onClick={() => navigate(`/ventas/cotizacion/${c.id}`)} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', background:'#f8f9fc', borderRadius:8, marginBottom:6, cursor:'pointer', border:'0.5px solid #e8ecf0' }}
-                            onMouseEnter={e=>e.currentTarget.style.borderColor='#185FA5'} onMouseLeave={e=>e.currentTarget.style.borderColor='#e8ecf0'}>
-                            <div style={{ flex:1 }}>
-                              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                                <span style={{ fontSize:12, fontWeight:600, fontFamily:'monospace', color:'#888' }}>{c.numero || '—'}</span>
-                                <span style={{ fontSize:10, padding:'1px 6px', borderRadius:10, background:estBg[c.estado]||'#eee', color:estColors[c.estado]||'#888', fontWeight:500 }}>{c.estado}</span>
-                              </div>
-                              <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>
-                                {c.fechaEmision ? c.fechaEmision.split('-').reverse().join('/') : '—'}
-                                {' · '}{sym}{Number(total).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })}
-                              </div>
                             </div>
                             <span style={{ fontSize:12, color:'#bbb' }}>›</span>
                           </div>

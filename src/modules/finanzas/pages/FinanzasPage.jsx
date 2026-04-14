@@ -28,7 +28,8 @@ import {
   collection, onSnapshot, query, orderBy, where,
   addDoc, updateDoc, deleteDoc, doc, getDocs, serverTimestamp, getDoc
 } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
+import { db, storage } from '../../../firebase/config'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePermisos } from '../../../hooks/usePermisos'
 import ResizableTable from '../../../shared/components/ResizableTable'
@@ -146,6 +147,11 @@ function ModalAbonoCxC({ factura, cuentas, onGuardar, onCerrar }) {
   const [form, setForm] = useState({ monto: '', metodo: 'Transferencia', fecha: today(), referencia: '', notas: '', cuentaId: '' })
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
+  const [foto, setFoto]           = useState(null)
+  const [fotoPreview, setFotoPreview] = useState(null)
+  const fotoRefCxC = useRef()
+  const handleFotoCxC = (file) => { if (!file) return; setFoto(file); const r = new FileReader(); r.onload = ev => setFotoPreview(ev.target.result); r.readAsDataURL(file) }
+  const handlePasteCxC = (e) => { const items = e.clipboardData?.items; if (!items) return; for (const item of items) { if (item.type.startsWith('image/')) { e.preventDefault(); handleFotoCxC(item.getAsFile()); return } } }
   const saldo = Number(factura.saldo ?? factura.total ?? 0)
   const upd   = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -158,7 +164,9 @@ function ModalAbonoCxC({ factura, cuentas, onGuardar, onCerrar }) {
     if (!form.cuentaId)             { setError('Seleccioná la cuenta donde ingresa el pago.'); return }
     setError(''); setGuardando(true)
     const cuenta = cuentas.find(c => c.id === form.cuentaId)
-    await onGuardar(factura, { ...form, monto, cuentaNombre: cuenta?.nombre || '' })
+    let comprobanteUrl = ''
+    if (foto) { try { const sR = storageRef(storage, `comprobantes/${Date.now()}_${foto.name}`); const sn = await uploadBytes(sR, foto); comprobanteUrl = await getDownloadURL(sn.ref) } catch {} }
+    await onGuardar(factura, { ...form, monto, cuentaNombre: cuenta?.nombre || '', comprobante: comprobanteUrl })
     setGuardando(false)
   }
 
@@ -209,7 +217,12 @@ function ModalAbonoCxC({ factura, cuentas, onGuardar, onCerrar }) {
             </select>
           </div>
           <div><label style={S.lbl}>Notas</label>
-            <textarea style={{ ...S.inp2, resize: 'vertical' }} rows={2} value={form.notas} onChange={e => upd('notas', e.target.value)} /></div>
+            <textarea style={{ ...S.inp2, resize: 'vertical' }} rows={2} value={form.notas} onChange={e => upd('notas', e.target.value)} onPaste={handlePasteCxC} /></div>
+          <div><label style={S.lbl}>Comprobante</label>
+            <input ref={fotoRefCxC} type="file" accept="image/*" style={{ display:"none" }} onChange={e => { if(e.target.files?.[0]) handleFotoCxC(e.target.files[0]); e.target.value="" }} />
+            {fotoPreview ? (<div style={{ position:"relative", display:"inline-block" }}><img src={fotoPreview} alt="" style={{ maxHeight:100, borderRadius:8, border:"1px solid #e0e0e0" }} /><button onClick={() => { setFoto(null); setFotoPreview(null) }} style={{ position:"absolute", top:-6, right:-6, width:20, height:20, borderRadius:"50%", background:"#A32D2D", border:"none", color:"#fff", fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>x</button></div>
+            ) : (<div style={{ display:"flex", gap:8, alignItems:"center" }}><button onClick={() => fotoRefCxC.current?.click()} style={{ padding:"6px 12px", border:"1px dashed #bbb", borderRadius:7, background:"#fafafa", color:"#888", fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>📷 Subir</button><span style={{ fontSize:10, color:"#bbb" }}>o Ctrl+V</span></div>)}
+          </div>
           {error && <div style={{ padding: '8px 12px', background: '#FCEBEB', borderRadius: 7, fontSize: 12, color: '#A32D2D' }}>{error}</div>}
         </div>
         <div style={{ padding: '12px 20px', borderTop: '0.5px solid rgba(0,0,0,.08)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -227,6 +240,11 @@ function ModalAbonoDeuda({ deuda, cuentas = [], onGuardar, onCerrar }) {
   const [form, setForm] = useState({ monto: '', metodo: 'Transferencia', fecha: today(), notas: '', cuentaId: '' })
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
+  const [fotoD, setFotoD]         = useState(null)
+  const [fotoPreviewD, setFotoPreviewD] = useState(null)
+  const fotoRefD = useRef()
+  const handleFotoD = (file) => { if (!file) return; setFotoD(file); const r = new FileReader(); r.onload = ev => setFotoPreviewD(ev.target.result); r.readAsDataURL(file) }
+  const handlePasteD = (e) => { const items = e.clipboardData?.items; if (!items) return; for (const item of items) { if (item.type.startsWith('image/')) { e.preventDefault(); handleFotoD(item.getAsFile()); return } } }
   const saldo = Number(deuda.saldo ?? deuda.monto ?? 0)
   const upd   = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const cuentasFiltradas = cuentas.filter(c => c.activa !== false && c.tipo !== 'Tarjeta de crédito')
@@ -238,7 +256,9 @@ function ModalAbonoDeuda({ deuda, cuentas = [], onGuardar, onCerrar }) {
     if (!form.cuentaId)         { setError('Seleccioná la cuenta bancaria.'); return }
     setError(''); setGuardando(true)
     const cuenta = cuentas.find(c => c.id === form.cuentaId)
-    await onGuardar(deuda, { ...form, monto, cuentaNombre: cuenta?.nombre || '' })
+    let comprobanteUrl = ''
+    if (fotoD) { try { const sR = storageRef(storage, `comprobantes/${Date.now()}_${fotoD.name}`); const sn = await uploadBytes(sR, fotoD); comprobanteUrl = await getDownloadURL(sn.ref) } catch {} }
+    await onGuardar(deuda, { ...form, monto, cuentaNombre: cuenta?.nombre || '', comprobante: comprobanteUrl })
     setGuardando(false)
   }
 
@@ -283,7 +303,12 @@ function ModalAbonoDeuda({ deuda, cuentas = [], onGuardar, onCerrar }) {
               <input style={S.inp2} type="date" value={form.fecha} onChange={e => upd('fecha', e.target.value)} /></div>
           </div>
           <div><label style={S.lbl}>Notas</label>
-            <textarea style={{ ...S.inp2, resize: 'vertical' }} rows={2} value={form.notas} onChange={e => upd('notas', e.target.value)} /></div>
+            <textarea style={{ ...S.inp2, resize: 'vertical' }} rows={2} value={form.notas} onChange={e => upd('notas', e.target.value)} onPaste={handlePasteD} /></div>
+          <div><label style={S.lbl}>Comprobante</label>
+            <input ref={fotoRefD} type="file" accept="image/*" style={{ display:'none' }} onChange={e => { if(e.target.files?.[0]) handleFotoD(e.target.files[0]); e.target.value='' }} />
+            {fotoPreviewD ? (<div style={{ position:'relative', display:'inline-block' }}><img src={fotoPreviewD} alt="" style={{ maxHeight:100, borderRadius:8, border:'1px solid #e0e0e0' }} /><button onClick={() => { setFotoD(null); setFotoPreviewD(null) }} style={{ position:'absolute', top:-6, right:-6, width:20, height:20, borderRadius:'50%', background:'#A32D2D', border:'none', color:'#fff', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>×</button></div>
+            ) : (<div style={{ display:'flex', gap:8, alignItems:'center' }}><button onClick={() => fotoRefD.current?.click()} style={{ padding:'6px 12px', border:'1px dashed #bbb', borderRadius:7, background:'#fafafa', color:'#888', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>📷 Subir</button><span style={{ fontSize:10, color:'#bbb' }}>o Ctrl+V</span></div>)}
+          </div>
           {error && <div style={{ padding: '8px 12px', background: '#FCEBEB', borderRadius: 7, fontSize: 12, color: '#A32D2D' }}>{error}</div>}
         </div>
         <div style={{ padding: '12px 20px', borderTop: '0.5px solid rgba(0,0,0,.08)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

@@ -331,8 +331,6 @@ export default function CotizacionForm() {
         contactoNombre: cot.contactoNombre || "",
         leadId: cot.leadId || null,
         leadNombre: cot.leadNombre || "",
-        vendedorId: cot.vendedorId || "",
-        vendedorNombre: cot.vendedorNombre || "",
         moneda: cot.moneda,
         tasaVenta: tasaVenta || null,
         tasaCompra: tasaCompra || null,
@@ -358,26 +356,6 @@ export default function CotizacionForm() {
 
       await updateDoc(doc(db, 'cotizaciones', id), { facturaId: factRef.id, estado: "Facturada" });
       setCot(prev => ({ ...prev, facturaId: factRef.id, estado: "Facturada" }));
-
-      // Celebración de venta — obtener avatar del vendedor
-      let avatarVendedor = ''
-      if (cot.vendedorId) {
-        try { const uSnap = await getDoc(doc(db, 'usuarios', cot.vendedorId)); if (uSnap.exists()) avatarVendedor = uSnap.data().fotoURL || '' } catch {}
-      }
-      await addDoc(collection(db, "ventas_celebraciones"), {
-        tipo: 'ganada',
-        vendedorId: cot.vendedorId || '',
-        vendedorNombre: cot.vendedorNombre || cot.clienteNombre || '',
-        vendedorAvatar: avatarVendedor,
-        facturaId: factRef.id,
-        cotizacionId: id,
-        monto: total,
-        moneda: cot.moneda || 'USD',
-        creadoEn: serverTimestamp(),
-        reacciones: {},
-        visto: [],
-      }).catch(() => {})
-
       navigate(`/facturacion/${factRef.id}`);
     } catch (err) { console.error("Error creando factura:", err); alert("Error al crear factura: " + err.message); }
   };

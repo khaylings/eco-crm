@@ -225,21 +225,6 @@ export default function VentasPage() {
       // Vincular factura en la cotización
       await updateDoc(doc(db, "cotizaciones", cot.id), { facturaId: factRef.id });
 
-      // Celebración de venta
-      await addDoc(collection(db, "ventas_celebraciones"), {
-        tipo: 'ganada',
-        vendedorId: cot.vendedorId || usuario?.uid,
-        vendedorNombre: cot.vendedorNombre || usuario?.nombre || '',
-        vendedorAvatar: usuario?.fotoURL || '',
-        facturaId: factRef.id,
-        cotizacionId: cot.id,
-        monto: total,
-        moneda: cot.moneda || 'USD',
-        creadoEn: serverTimestamp(),
-        reacciones: {},
-        visto: [],
-      }).catch(() => {})
-
       navigate(`/facturacion/${factRef.id}`);
     } catch (err) {
       console.error("Error creando factura:", err);

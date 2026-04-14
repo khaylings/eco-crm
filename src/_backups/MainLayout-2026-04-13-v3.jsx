@@ -12,7 +12,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  collection, query, where, onSnapshot, deleteDoc, addDoc,
+  collection, query, where, onSnapshot, deleteDoc,
   orderBy, updateDoc, doc, writeBatch, getDocs, getDoc, setDoc, serverTimestamp
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
@@ -20,7 +20,6 @@ import { useAlertasVencimiento } from '../../hooks/useAlertasVencimiento'
 import { usePermisos } from '../../hooks/usePermisos'
 import BotAyuda from './BotAyuda'
 import ChatWidget from './ChatWidget'
-import SalesBombModal from '../components/SalesBombModal'
 
 // ── Cambio 1: agregar Email al nav horizontal ─────────────────────────────────
 const NAV_ITEMS_BASE = [
@@ -642,28 +641,10 @@ export default function MainLayout() {
           try {
             const factSnap = await getDoc(doc(db, 'facturas', meta.documentoId))
             if (factSnap.exists()) {
-              const fd = factSnap.data()
-              const cotId = fd.cotizacionId
+              const cotId = factSnap.data().cotizacionId
               if (cotId) {
                 await updateDoc(doc(db, 'cotizaciones', cotId), { estado: 'Aceptada', facturaId: null }).catch(() => {})
               }
-              // Celebración pausada — obtener avatar
-              let avPausada = ''
-              if (fd.vendedorId) { try { const uS = await getDoc(doc(db, 'usuarios', fd.vendedorId)); if (uS.exists()) avPausada = uS.data().fotoURL || '' } catch {} }
-              await addDoc(collection(db, 'ventas_celebraciones'), {
-                tipo: 'pausada',
-                vendedorId: fd.vendedorId || '',
-                vendedorNombre: fd.vendedorNombre || '',
-                vendedorAvatar: avPausada,
-                facturaId: meta.documentoId,
-                cotizacionId: fd.cotizacionId || '',
-                monto: fd.total || 0,
-                moneda: fd.moneda || 'USD',
-                mensaje: 'La venta ha sido pausada — apoyo para recuperarla',
-                creadoEn: serverTimestamp(),
-                reacciones: {},
-                visto: [],
-              }).catch(() => {})
             }
           } catch {}
         }
@@ -851,7 +832,6 @@ export default function MainLayout() {
       </header>
 
       <ChatWidget onSonido={reproducirSonido} />
-      <SalesBombModal usuario={usuario} />
       {botOpen  && <BotAyuda onCerrar={() => setBotOpen(false)} />}
       {gridOpen && <MenuGrid onClose={() => setGridOpen(false)} onNavigate={navigate} modulosGrid={modulosGrid} />}
       <main style={{ flex: 1, overflowY: 'auto' }}><Outlet /></main>

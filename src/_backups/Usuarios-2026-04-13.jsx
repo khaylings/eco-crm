@@ -1,7 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { storage } from '../../../firebase/config'
 import { createUserWithEmailAndPassword, getAuth } from 'firebase/auth'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { db } from '../../../firebase/firestore'
@@ -84,11 +82,9 @@ function RolBadge({ rol }) {
   )
 }
 
-function Avatar({ nombre, fotoURL, size = 34 }) {
+function Avatar({ nombre, size = 34 }) {
   const letra = (nombre || '?')[0].toUpperCase()
-  return fotoURL ? (
-    <img src={fotoURL} alt={nombre} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-  ) : (
+  return (
     <div style={{
       width: size, height: size, borderRadius: '50%', background: '#d4e8d4',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -306,25 +302,7 @@ export default function Usuarios() {
           }}>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ position: 'relative' }}>
-                <Avatar nombre={u.nombre} fotoURL={u.fotoURL} />
-                {esSuperAdmin && (
-                  <>
-                    <input type="file" accept="image/png" style={{ display: 'none' }} id={`avatar-${u.id}`} onChange={async (e) => {
-                      const file = e.target.files?.[0]; if (!file) return
-                      try {
-                        const sRef = storageRef(storage, `avatares/${u.id}.png`)
-                        await uploadBytes(sRef, file)
-                        const url = await getDownloadURL(sRef)
-                        await updateDoc(doc(db, 'usuarios', u.id), { fotoURL: url })
-                        setUsuarios(prev => prev.map(us => us.id === u.id ? { ...us, fotoURL: url } : us))
-                      } catch (err) { console.error(err) }
-                      e.target.value = ''
-                    }} />
-                    <button onClick={() => document.getElementById(`avatar-${u.id}`).click()} style={{ position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: '50%', background: '#1a6e3c', border: '2px solid #fff', color: '#fff', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }} title="Cambiar avatar">📷</button>
-                  </>
-                )}
-              </div>
+              <Avatar nombre={u.nombre} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
                   {u.nombre}
