@@ -6,7 +6,7 @@ const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2')
 const { initializeApp }    = require('firebase-admin/app')
 const { getAuth }          = require('firebase-admin/auth')
-const { getFirestore }     = require('firebase-admin/firestore')
+const { getFirestore, FieldValue } = require('firebase-admin/firestore')
 const nodemailer           = require('nodemailer')
 const crypto               = require('crypto')
 const { simpleParser }     = require('mailparser')
@@ -478,6 +478,87 @@ exports.recibirEmail = onRequest({ cors: true }, async (req, res) => {
 
 // ─── Polling automático cada 5 minutos ───────────────────────────────────────
 const { onSchedule } = require('firebase-functions/v2/scheduler')
+const fetch2 = require('node-fetch')
+
+// ─── Monitor WhatsApp — Verifica conexión cada 5 minutos ────────────────────
+exports.monitorWhatsApp = onSchedule('every 5 minutes', async () => {
+  const db = getFirestore()
+
+  // Leer tokens de WaSender desde configuracion_segura
+  const integDoc = await db.collection('configuracion_segura').doc('integraciones').get()
+  if (!integDoc.exists) { console.log('Monitor WA: sin config de integraciones'); return }
+  const integ = integDoc.data()
+  const personalToken = integ.wasenderPersonalToken || integ.wasenderApiKey || ''
+  const sessionId = integ.wasenderSessionId || integ.wasenderSession || ''
+  if (!personalToken || !sessionId) { console.log('Monitor WA: faltan tokens'); return }
+
+  try {
+    // Consultar estado de la sesión
+    const res = await fetch2(`https://wasenderapi.com/api/whatsapp-sessions/${sessionId}`, {
+      headers: { 'Authorization': `Bearer ${personalToken}`, 'Content-Type': 'application/json' },
+    })
+    const data = await res.json()
+    const status = data?.data?.status || data?.status || 'unknown'
+    const phone = data?.data?.phone || data?.phone || sessionId
+
+    console.log(`Monitor WA: sesión ${sessionId} estado=${status}`)
+
+    // Guardar estado actual en Firestore
+    await db.collection('configuracion').doc('whatsapp_status').set({
+      status,
+      phone,
+      ultimaVerificacion: FieldValue.serverTimestamp(),
+      sessionId,
+    }, { merge: true })
+
+    // Si está desconectado, alertar a todos los usuarios
+    const connected = ['connected', 'open', 'active', 'authenticated'].includes(status.toLowerCase())
+
+    if (!connected) {
+      // Verificar si ya se envió alerta reciente (evitar spam)
+      const statusDoc = await db.collection('configuracion').doc('whatsapp_status').get()
+      const lastAlert = statusDoc.data()?.ultimaAlerta?.toDate?.() || new Date(0)
+      const minSinceAlert = (Date.now() - lastAlert.getTime()) / 60000
+
+      if (minSinceAlert < 15) {
+        console.log('Monitor WA: alerta ya enviada hace menos de 15 min')
+        return
+      }
+
+      // Crear notificación para todos los usuarios
+      const usersSnap = await db.collection('usuarios').get()
+      const batch = db.batch()
+
+      usersSnap.docs.forEach(userDoc => {
+        const notifRef = db.collection('notificaciones').doc()
+        batch.set(notifRef, {
+          tipo: 'alerta_whatsapp',
+          titulo: 'WhatsApp desconectado',
+          cuerpo: `La sesión de WhatsApp (${phone}) se ha desconectado. Estado: ${status}. Reconecta desde Configuración > WhatsApp.`,
+          destinatarioId: userDoc.id,
+          leida: false,
+          procesada: false,
+          creadoEn: FieldValue.serverTimestamp(),
+        })
+      })
+
+      await batch.commit()
+      await db.collection('configuracion').doc('whatsapp_status').update({
+        ultimaAlerta: FieldValue.serverTimestamp(),
+        alertaEnviada: true,
+      })
+
+      console.log(`Monitor WA: ALERTA enviada a ${usersSnap.size} usuarios — estado: ${status}`)
+    } else {
+      // Si reconectó, limpiar flag de alerta
+      await db.collection('configuracion').doc('whatsapp_status').update({
+        alertaEnviada: false,
+      })
+    }
+  } catch (err) {
+    console.error('Monitor WA error:', err.message)
+  }
+})
 
 exports.leerEmailsImap = onSchedule('every 5 minutes', async () => {
   const db   = getFirestore()
@@ -497,6 +578,193 @@ exports.leerEmailsImap = onSchedule('every 5 minutes', async () => {
       console.error(`✗ ${c.email}:`, e.message)
       await actualizarEstado(db, cuentaDoc.id, false, e.message)
     }
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── Webhook WaSender — Recibir mensajes entrantes de WhatsApp ───────────────
+// ─────────────────────────────────────────────────────────────────────────────
+const { procesarMensajeBot } = require('./botEngine')
+
+exports.webhookWaSender = onRequest({ cors: true }, async (req, res) => {
+  // ── CORS preflight ──
+  res.set('Access-Control-Allow-Origin', '*')
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  if (req.method === 'OPTIONS') return res.status(204).send('')
+
+  // ── Verificación GET (WaSender envía GET para verificar el webhook) ──
+  if (req.method === 'GET') {
+    return res.status(200).json({ status: 'ok', webhook: 'webhookWaSender' })
+  }
+
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed')
+
+  // ── Verificar secret (query param o header) ──
+  const secret = req.query.secret || req.headers['x-webhook-secret'] || ''
+  const expectedSecret = process.env.WASENDER_WEBHOOK_SECRET
+  if (expectedSecret && secret !== expectedSecret) {
+    console.warn('Webhook WaSender: secret inválido')
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    const payload = req.body
+    console.log('Webhook WaSender payload:', JSON.stringify(payload).slice(0, 500))
+
+    // ── Extraer datos del mensaje ──
+    // WaSender envía diferentes formatos según el evento
+    const evento = payload.event || payload.type || ''
+
+    // Solo procesar UN tipo de evento para evitar duplicados
+    // WaSender manda: messages.upsert, messages-personal.received, messages.received
+    // Usamos solo messages.upsert como evento principal
+    if (evento !== 'messages.upsert') {
+      return res.status(200).json({ ok: true, ignored: true, reason: `evento ignorado: ${evento}` })
+    }
+
+    // Extraer el mensaje — WaSender envía en data.messages
+    const msg = payload.data?.messages || payload.data?.message || payload.message || payload.data || payload
+    const key = msg.key || {}
+    const fromMe = key.fromMe || msg.fromMe || false
+
+    // Ignorar mensajes enviados por nosotros (ya los guardamos al enviar)
+    if (fromMe) {
+      return res.status(200).json({ ok: true, ignored: true, reason: 'fromMe' })
+    }
+
+    // Extraer teléfono: WaSender usa senderPn o cleanedSenderPn para el número real
+    const fromRaw = key.senderPn || key.cleanedSenderPn || key.remoteJid || msg.from || msg.sender || ''
+    const telefono = fromRaw.replace(/@.*$/, '').replace(/[^0-9]/g, '')
+    if (!telefono || telefono.length < 7) {
+      return res.status(200).json({ ok: true, ignored: true, reason: 'teléfono inválido' })
+    }
+
+    // Ignorar mensajes de grupos
+    const remoteJid = key.remoteJid || ''
+    if (remoteJid.includes('@g.us')) {
+      return res.status(200).json({ ok: true, ignored: true, reason: 'grupo' })
+    }
+
+    // Nombre del contacto
+    const pushName = msg.pushName || msg.notifyName || msg.senderName || ''
+
+    // Extraer contenido del mensaje
+    const msgContent = msg.message || {}
+    const body = msgContent.conversation
+      || msgContent.extendedTextMessage?.text
+      || msgContent.imageMessage?.caption
+      || msgContent.videoMessage?.caption
+      || msg.body || msg.text || msg.caption || ''
+
+    // Detectar tipo de mensaje
+    let tipo = 'texto'
+    let mediaUrl = null
+    if (msgContent.imageMessage) {
+      tipo = 'image'
+      mediaUrl = msg.mediaUrl || null
+    } else if (msgContent.videoMessage) {
+      tipo = 'video'
+      mediaUrl = msg.mediaUrl || null
+    } else if (msgContent.audioMessage || msgContent.pttMessage) {
+      tipo = 'audio'
+      mediaUrl = msg.mediaUrl || null
+    } else if (msgContent.documentMessage || msgContent.documentWithCaptionMessage) {
+      tipo = 'file'
+      mediaUrl = msg.mediaUrl || null
+    } else if (msgContent.stickerMessage) {
+      tipo = 'sticker'
+      mediaUrl = msg.mediaUrl || null
+    } else if (msgContent.locationMessage) {
+      tipo = 'location'
+    }
+
+    const db = getFirestore()
+    const now = Math.floor(Date.now() / 1000)
+
+    // ── Buscar o crear conversación ──
+    const convsRef = db.collection('conversaciones')
+    let convDoc = null
+    let convId = null
+
+    // Buscar por teléfono exacto o con variantes (+, sin +, etc.)
+    const snapshot = await convsRef.where('telefono', '==', telefono).limit(1).get()
+    if (!snapshot.empty) {
+      convDoc = snapshot.docs[0]
+      convId = convDoc.id
+    } else {
+      // Buscar con + adelante
+      const snapshot2 = await convsRef.where('telefono', '==', `+${telefono}`).limit(1).get()
+      if (!snapshot2.empty) {
+        convDoc = snapshot2.docs[0]
+        convId = convDoc.id
+      }
+    }
+
+    if (!convId) {
+      // Crear nueva conversación
+      const nombre = pushName || telefono
+      const newRef = await convsRef.add({
+        telefono,
+        nombre,
+        ultimoMensaje: body || `[${tipo}]`,
+        timestamp: now,
+        noLeidos: 1,
+        creadoEn: FieldValue.serverTimestamp(),
+      })
+      convId = newRef.id
+    } else {
+      // Actualizar conversación existente
+      const noLeidosActual = convDoc.data().noLeidos || 0
+      await convsRef.doc(convId).update({
+        ultimoMensaje: body || `[${tipo}]`,
+        timestamp: now,
+        noLeidos: noLeidosActual + 1,
+        ...(pushName ? { nombre: pushName } : {}),
+      })
+    }
+
+    // ── Guardar mensaje en subcollección ──
+    const mensajeData = {
+      body: body || '',
+      fromMe: false,
+      tipo,
+      timestamp: now,
+    }
+    if (mediaUrl) mensajeData.mediaUrl = mediaUrl
+    if (msg.mimetype) mensajeData.mimetype = msg.mimetype
+
+    // Guardar msgRaw para poder desencriptar media después
+    if (tipo !== 'texto' && tipo !== 'location') {
+      try {
+        mensajeData.msgRaw = JSON.parse(JSON.stringify(msg))
+      } catch (e) { /* ignorar si no se puede serializar */ }
+    }
+
+    await convsRef.doc(convId).collection('mensajes').add(mensajeData)
+
+    // ── Llamar al bot si está activo ──
+    try {
+      if (body) {
+        const integDoc = await db.collection('configuracion_segura').doc('integraciones').get()
+        const integData = integDoc.exists ? integDoc.data() : {}
+        const wasenderToken = integData.wasenderSessionToken || integData.wasenderToken || ''
+        const wasenderSession = integData.wasenderSessionId || integData.wasenderSession || ''
+        if (wasenderToken && wasenderSession) {
+          await procesarMensajeBot(telefono, body, db, wasenderToken, wasenderSession)
+        }
+      }
+    } catch (botErr) {
+      console.error('Error en botEngine:', botErr.message)
+      // No fallar el webhook por error del bot
+    }
+
+    console.log(`Webhook WaSender: mensaje guardado en conversaciones/${convId} de ${telefono}`)
+    return res.status(200).json({ ok: true, convId, telefono })
+
+  } catch (err) {
+    console.error('Error webhook WaSender:', err)
+    return res.status(500).json({ error: err.message })
   }
 })
 
