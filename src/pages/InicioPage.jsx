@@ -11,6 +11,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import DashboardCards from '../shared/components/DashboardCards'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import PistaCarreras from '../shared/components/PistaCarreras'
@@ -487,8 +488,11 @@ export default function InicioPage() {
           anio={ahora.getFullYear()}
         />
 
-        {/* ── ACTIVIDAD RECIENTE + PIPELINE ── */}
-        <div style={{ ...s.grid2, marginTop: 14 }}>
+        {/* ── TARJETAS ARRASTRABLES ── */}
+        <DashboardCards datos={datos} actividad={actividad} pipeline={pipeline} metricas={m} loading={loading} navigate={navigate} />
+
+        {/* LEGACY — oculto, reemplazado por DashboardCards */}
+        <div style={{ display: 'none' }}>
 
           {/* Feed actividad */}
           <div style={s.card}>
