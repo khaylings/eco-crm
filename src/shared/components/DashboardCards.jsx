@@ -137,18 +137,25 @@ export default function DashboardCards({ datos, actividad, pipeline, metricas, l
         )
 
       case 'por_cobrar':
+        const hoyPC = new Date(); hoyPC.setHours(0,0,0,0)
+        const facturasPC = (datos?.porCobrar || []).map(f => {
+          const vence = f.fechaVencimiento ? new Date(f.fechaVencimiento + 'T00:00:00') : null
+          const dias = vence ? Math.round((vence - hoyPC) / 86400000) : 999
+          const monto = f.moneda === 'CRC' ? Number(f.saldo || f.total || 0) / Number(f.tasa || 519.5) : Number(f.saldo || f.total || 0)
+          return { ...f, dias, montoUSD: monto, vendedorCorto: (f.vendedorNombre || '').split(' ')[0] }
+        }).sort((a, b) => a.dias - b.dias)
         return (
           <div key={sec.key} style={cs} {...dp}>
             <SeccionHeader label={<>{handle}Por cobrar</>} />
             <TablaMini
-              headers={[{ k: 'c', label: 'Cliente' }, { k: 'v', label: 'Vendedor' }, { k: 's', label: 'Saldo', right: true }, { k: 'f', label: 'Vence' }]}
-              rows={(datos?.porCobrar || []).slice(0, 6).map(f => {
-                const vencido = (f.fechaVencimiento || '') < new Date().toISOString().split('T')[0]
+              headers={[{ k: 'c', label: 'Cliente' }, { k: 'v', label: 'Vendedor' }, { k: 's', label: 'Monto', right: true }, { k: 'f', label: 'Días', right: true }]}
+              rows={facturasPC.map(f => {
+                const vencido = f.dias < 0
                 return [
                   <span>{f.clienteNombre || '—'}</span>,
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><UserAvatar nombre={f.vendedorNombre} uid={f.vendedorId} size={16} />{f.vendedorNombre || '—'}</span>,
-                  <span style={{ fontWeight: 500, color: '#A32D2D' }}>{fmt2(f.saldo || f.total || 0)}</span>,
-                  <span style={{ fontSize: 11, color: vencido ? '#A32D2D' : '#888' }}>{f.fechaVencimiento || '—'}</span>,
+                  <span>{f.vendedorCorto || '—'}</span>,
+                  <span style={{ fontWeight: 500, color: '#A32D2D' }}>${Number(f.montoUSD).toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>,
+                  <span style={{ fontWeight: 600, color: vencido ? '#A32D2D' : f.dias <= 7 ? '#854F0B' : '#3B6D11' }}>{vencido ? `${f.dias}d` : `+${f.dias}d`}</span>,
                 ]
               })}
             />

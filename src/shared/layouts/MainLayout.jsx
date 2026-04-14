@@ -854,6 +854,26 @@ export default function MainLayout() {
       <ChatWidget onSonido={reproducirSonido} />
       <SalesBombModal usuario={usuario} />
       <AnuncioModal />
+      {/* Modal de correo devuelto */}
+      {notifs.filter(n => n.tipo === 'correo_devuelto' && !n.leida).slice(0, 1).map(n => (
+        <div key={n.id} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(3px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 14, width: '90%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,.25)', overflow: 'hidden' }}>
+            <div style={{ background: '#FCEBEB', padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#A32D2D', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>✉️</div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#A32D2D' }}>Correo devuelto</div>
+                <div style={{ fontSize: 11, color: '#7c2d2d' }}>El destinatario no recibió tu mensaje</div>
+              </div>
+            </div>
+            <div style={{ padding: '18px 24px' }}>
+              <div style={{ fontSize: 14, color: '#333', lineHeight: 1.6 }}>{n.cuerpo}</div>
+            </div>
+            <div style={{ padding: '12px 24px 18px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => updateDoc(doc(db, 'notificaciones', n.id), { leida: true })} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#A32D2D', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Entendido</button>
+            </div>
+          </div>
+        </div>
+      ))}
       {botOpen  && <BotAyuda onCerrar={() => setBotOpen(false)} />}
       {gridOpen && <MenuGrid onClose={() => setGridOpen(false)} onNavigate={navigate} modulosGrid={modulosGrid} />}
       <main style={{ flex: 1, overflowY: 'auto' }}><Outlet /></main>

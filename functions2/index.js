@@ -11,6 +11,7 @@ const { getStorage }   = require('firebase-admin/storage')
 const nodemailer           = require('nodemailer')
 const crypto               = require('crypto')
 const { simpleParser }     = require('mailparser')
+const fetch                = require('node-fetch')
 
 setGlobalOptions({
   cors: true,
@@ -109,6 +110,8 @@ async function leerCuentaImap({ host, port, user, password, email, db }) {
                     tamaño: a.size || 0,
                   }))
 
+                  // Detectar bounce/correo devuelto
+                  const esBounce = /mailer-daemon|mail.delivery|postmaster|undeliverable|failure.notice|returned.mail/i.test(deEmail + de + asunto)
                   await db.collection('emails').add({
                     de, deEmail, para, asunto,
                     cuerpoTexto:    cuerpoTexto.slice(0, 5000),
@@ -122,7 +125,30 @@ async function leerCuentaImap({ host, port, user, password, email, db }) {
                     adjuntos,
                     cuentaEmail:    email,
                     creadoEn:       new Date(),
+                    ...(esBounce ? { esBounce: true } : {}),
                   })
+                  // Si es bounce, notificar al último usuario que envió a esa dirección
+                  if (esBounce) {
+                    try {
+                      const destinatarioMatch = cuerpoTexto.match(/[\w.-]+@[\w.-]+\.\w+/)
+                      const emailRebotado = destinatarioMatch ? destinatarioMatch[0] : ''
+                      if (emailRebotado) {
+                        const enviados = await db.collection('emails').where('para', '==', emailRebotado).where('direccion', '==', 'salida').orderBy('creadoEn', 'desc').limit(1).get()
+                        const enviadoPor = enviados.empty ? null : enviados.docs[0].data().enviadoPor
+                        if (enviadoPor) {
+                          await db.collection('notificaciones').add({
+                            destinatarioId: enviadoPor,
+                            tipo: 'correo_devuelto',
+                            titulo: '📧 Correo devuelto',
+                            cuerpo: `El correo enviado a ${emailRebotado} fue devuelto. Verificá que la dirección esté bien escrita.`,
+                            leida: false,
+                            procesada: false,
+                            creadoEn: new Date(),
+                          })
+                        }
+                      }
+                    } catch (bounceErr) { console.error('Error procesando bounce:', bounceErr.message) }
+                  }
                   nuevos++
                 } catch(e) { console.error('Error parseando:', e.message) }
                 res()
@@ -359,7 +385,7 @@ exports.enviarEmail = onCall(async (request) => {
   const db        = getFirestore()
   const callerDoc = await db.collection('usuarios').doc(request.auth.uid).get()
   if (!callerDoc.exists) throw new HttpsError('not-found', 'Usuario no encontrado.')
-  const { cuentaId, para, asunto, cuerpoHtml, cuerpoTexto, cotizacionId, leadId, contactoId } = request.data
+  const { cuentaId, para, asunto, cuerpoHtml, cuerpoTexto, cotizacionId, leadId, contactoId, adjuntos } = request.data
   if (!cuentaId || !para || !asunto) throw new HttpsError('invalid-argument', 'Faltan campos: cuentaId, para, asunto.')
   const snap = await db.collection('configuracion_segura').doc('cuentas_email').collection('lista').doc(cuentaId).get()
   if (!snap.exists) throw new HttpsError('not-found', 'Cuenta no encontrada.')
@@ -368,12 +394,28 @@ exports.enviarEmail = onCall(async (request) => {
   const password    = desencriptar(c.smtpPasswordEnc)
   const transporter = nodemailer.createTransport({ host: c.smtpHost, port: c.smtpPuerto, secure: c.smtpPuerto === 465, auth: { user: c.smtpUsuario, pass: password }, tls: { rejectUnauthorized: false } })
   try {
-    const info   = await transporter.sendMail({ from: `"${c.nombre}" <${c.email}>`, to: para, subject: asunto, text: cuerpoTexto || '', html: cuerpoHtml || '' })
+    const nombreRemitente = caller?.nombre || c.nombre
+    const adjuntosEmail = []
+    if (adjuntos?.length) {
+      for (const adj of adjuntos) {
+        try {
+          const res = await fetch(adj.url)
+          const buffer = await res.buffer()
+          adjuntosEmail.push({ filename: adj.nombre, content: buffer, contentType: adj.tipo || 'application/octet-stream' })
+        } catch (e) { console.error('Error descargando adjunto:', e.message) }
+      }
+    }
+    const info = await transporter.sendMail({ from: `"${nombreRemitente}" <${c.email}>`, to: para, subject: asunto, text: cuerpoTexto || '', html: cuerpoHtml || '', ...(adjuntosEmail.length ? { attachments: adjuntosEmail } : {}) })
     const caller = callerDoc.data()
     await db.collection('emails').add({ de: c.email, deCuenta: c.nombre, para, asunto, cuerpoTexto: cuerpoTexto || '', cuerpoHtml: cuerpoHtml || '', fecha: new Date(), direccion: 'salida', estado: 'enviado', messageId: info.messageId, cotizacionId: cotizacionId || null, leadId: leadId || null, contactoId: contactoId || null, enviadoPor: request.auth.uid, enviadoPorNombre: caller?.nombre || '', creadoEn: new Date() })
     return { success: true, messageId: info.messageId }
   } catch (err) {
-    throw new HttpsError('internal', `Error al enviar: ${err.message}`)
+    const msg = err.message || ''
+    if (msg.includes('Invalid') || msg.includes('rejected') || msg.includes('not found') || msg.includes('does not exist') || msg.includes('550'))
+      throw new HttpsError('invalid-argument', `La dirección "${para}" parece no existir o fue rechazada. Verificá que esté bien escrita.`)
+    if (msg.includes('EAUTH') || msg.includes('credentials'))
+      throw new HttpsError('failed-precondition', 'Error de autenticación con el servidor de correo. Revisá las credenciales SMTP.')
+    throw new HttpsError('internal', 'Error al enviar el correo. Intentá de nuevo.')
   }
 })
 

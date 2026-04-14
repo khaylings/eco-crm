@@ -8,8 +8,8 @@
  * ============================================================
  */
 
-import { useEffect, useState } from 'react'
-import { collection, query, orderBy, onSnapshot, doc, updateDoc } from 'firebase/firestore'
+import { useEffect, useState, useRef } from 'react'
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, getDoc, getDocs } from 'firebase/firestore'
 import { db } from '../../../firebase/config'
 import { useAuth } from '../../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -221,22 +221,133 @@ function ModalImportar({ onCerrar, onImportar }) {
 }
 
 // ─── Modal Redactar ────────────────────────────────────────────────────────────
-function ModalRedactar({ cuentas, inicial, onCerrar }) {
+// ─── Modal Firma ──────────────────────────────────────────────────────────────
+function ModalFirma({ uid, nombre, firmaActual, onCerrar, onGuardar, esAdmin, usuarios }) {
+  const [uidSelec, setUidSelec] = useState(uid)
+  const [firma, setFirma] = useState(firmaActual || '')
+  const [guardando, setGuardando] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  // Cargar firma del usuario seleccionado (admin puede elegir otro)
+  useEffect(() => {
+    if (!esAdmin || uidSelec === uid) { setFirma(firmaActual || ''); return }
+    getDoc(doc(db, 'usuarios', uidSelec)).then(snap => {
+      setFirma(snap.exists() ? (snap.data().firmaEmail || '') : '')
+    })
+  }, [uidSelec])
+
+  const guardar = async () => {
+    setGuardando(true)
+    try {
+      await updateDoc(doc(db, 'usuarios', uidSelec), { firmaEmail: firma })
+      setMsg('✓ Firma guardada')
+      if (uidSelec === uid) onGuardar(firma)
+      setTimeout(() => setMsg(''), 2000)
+    } catch { setMsg('Error al guardar') }
+    finally { setGuardando(false) }
+  }
+
+  const plantillas = [
+    `${nombre}\n${nombre}'s Company`,
+    `Saludos cordiales,\n${nombre}`,
+    `Atentamente,\n${nombre}\nTeléfono: \nCorreo: `,
+    `--\n${nombre}\nCargo: \nTeléfono: \nDirección: `,
+  ]
+
+  const inp = { width: '100%', padding: '8px 10px', border: '1px solid #e8ecf0', borderRadius: 7, fontSize: 13, color: '#1a1a1a', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', background: '#fff' }
+  const lbl = { fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(3px)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={e => e.target === e.currentTarget && onCerrar()}>
+      <div style={{ background: '#fff', borderRadius: 14, width: '90%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #e8ecf0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>✏️ Firma de correo</span>
+          <button onClick={onCerrar} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#aaa' }}>×</button>
+        </div>
+        <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 }}>
+          {esAdmin && usuarios?.length > 0 && (
+            <div>
+              <label style={lbl}>Editar firma de</label>
+              <select value={uidSelec} onChange={e => setUidSelec(e.target.value)} style={{ ...inp, fontSize: 12 }}>
+                {usuarios.map(u => <option key={u.uid} value={u.uid}>{u.nombre || u.email}{u.uid === uid ? ' (tú)' : ''}</option>)}
+              </select>
+            </div>
+          )}
+          <div>
+            <label style={lbl}>Plantillas rápidas</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {plantillas.map((p, i) => (
+                <button key={i} onClick={() => setFirma(p)} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e0e0e0', borderRadius: 6, background: '#f8f9fb', cursor: 'pointer', fontFamily: 'inherit', color: '#555' }}>
+                  Plantilla {i + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={lbl}>Tu firma</label>
+            <textarea value={firma} onChange={e => setFirma(e.target.value)} rows={6} placeholder="Escribe tu firma aquí...\nEj: Saludos cordiales,\nJuan Pérez\nVentas - Mi Empresa" style={{ ...inp, resize: 'vertical', lineHeight: 1.6 }} />
+          </div>
+          {firma && (
+            <div style={{ background: '#f8f9fb', borderRadius: 8, padding: 12, border: '1px dashed #d0d8e0' }}>
+              <div style={{ fontSize: 9, fontWeight: 600, color: '#aaa', textTransform: 'uppercase', marginBottom: 6 }}>Vista previa</div>
+              <div style={{ fontSize: 13, color: '#555', whiteSpace: 'pre-wrap', lineHeight: 1.6, borderTop: '1px solid #ddd', paddingTop: 8 }}>
+                {firma}
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '12px 20px', borderTop: '1px solid #e8ecf0', display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+          {msg && <span style={{ fontSize: 12, color: msg.startsWith('✓') ? '#3B6D11' : '#A32D2D', fontWeight: 500, marginRight: 'auto' }}>{msg}</span>}
+          <button onClick={onCerrar} style={{ padding: '8px 18px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: '#f5f5f5', fontFamily: 'inherit' }}>Cancelar</button>
+          <button onClick={guardar} disabled={guardando} style={{ padding: '8px 22px', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: guardando ? 'not-allowed' : 'pointer', background: guardando ? '#ccc' : '#185FA5', color: '#fff', fontFamily: 'inherit' }}>
+            {guardando ? 'Guardando...' : '💾 Guardar firma'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Redactar ────────────────────────────────────────────────────────────
+function ModalRedactar({ cuentas, inicial, onCerrar, firmaUsuario }) {
   const fns      = getFunctions()
   const fnEnviar = httpsCallable(fns, 'enviarEmail')
+  const firmaInicial = firmaUsuario ? `${inicial?.cuerpo || ''}\n\n--\n${firmaUsuario}` : (inicial?.cuerpo || '')
   const [para,     setPara]     = useState(inicial?.para    || '')
   const [cc,       setCc]       = useState(inicial?.cc      || '')
   const [asunto,   setAsunto]   = useState(inicial?.asunto  || '')
-  const [cuerpo,   setCuerpo]   = useState(inicial?.cuerpo  || '')
+  const [cuerpo,   setCuerpo]   = useState(firmaInicial)
   const [cuentaId, setCuentaId] = useState(inicial?.cuentaId || cuentas[0]?.id || '')
   const [enviando, setEnviando] = useState(false)
   const [error,    setError]    = useState(null)
+  const [archivos, setArchivos] = useState([])
+  const archivoRef = useRef(null)
+
+  const agregarArchivos = (e) => {
+    const files = Array.from(e.target.files || [])
+    setArchivos(prev => [...prev, ...files])
+    e.target.value = ''
+  }
+
+  const quitarArchivo = (idx) => setArchivos(prev => prev.filter((_, i) => i !== idx))
 
   async function enviar() {
     if (!para.trim() || !asunto.trim() || !cuentaId) { setError('Completá: Para, Asunto y elegí una cuenta.'); return }
     setEnviando(true); setError(null)
     try {
-      await fnEnviar({ cuentaId, para: para.trim(), asunto: asunto.trim(), cuerpoTexto: cuerpo, cuerpoHtml: `<div style="font-family:inherit;font-size:14px;line-height:1.6">${cuerpo.replace(/\n/g,'<br>')}</div>`, leadId: inicial?.leadId || null, contactoId: inicial?.contactoId || null })
+      // Subir adjuntos a Storage
+      let adjuntosData = []
+      if (archivos.length > 0) {
+        const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage')
+        const storage = getStorage()
+        for (const file of archivos) {
+          const sRef = ref(storage, `email_adjuntos/${Date.now()}_${file.name}`)
+          await uploadBytes(sRef, file)
+          const url = await getDownloadURL(sRef)
+          adjuntosData.push({ nombre: file.name, url, tipo: file.type })
+        }
+      }
+      await fnEnviar({ cuentaId, para: para.trim(), asunto: asunto.trim(), cuerpoTexto: cuerpo, cuerpoHtml: `<div style="font-family:inherit;font-size:14px;line-height:1.6">${cuerpo.replace(/\n/g,'<br>')}</div>`, leadId: inicial?.leadId || null, contactoId: inicial?.contactoId || null, adjuntos: adjuntosData.length ? adjuntosData : null })
       onCerrar()
     } catch (e) { setError(e.message || 'Error al enviar.') }
     finally { setEnviando(false) }
@@ -262,6 +373,20 @@ function ModalRedactar({ cuentas, inicial, onCerrar }) {
           <div><label style={lbl}>CC</label><input value={cc} onChange={e => setCc(e.target.value)} placeholder="copia@ejemplo.com" style={inp} /></div>
           <div><label style={lbl}>Asunto *</label><input value={asunto} onChange={e => setAsunto(e.target.value)} placeholder="Asunto del correo" style={inp} /></div>
           <div><label style={lbl}>Mensaje</label><textarea value={cuerpo} onChange={e => setCuerpo(e.target.value)} placeholder="Escribe tu mensaje aquí..." rows={10} style={{ ...inp, resize: 'vertical', lineHeight: 1.7, minHeight: 180 }} /></div>
+          <div>
+            <input ref={archivoRef} type="file" multiple style={{ display: 'none' }} onChange={agregarArchivos} />
+            <button onClick={() => archivoRef.current?.click()} style={{ padding: '6px 14px', border: '1px solid #e0e0e0', borderRadius: 7, fontSize: 12, cursor: 'pointer', background: '#f8f9fb', fontFamily: 'inherit', color: '#555', display: 'flex', alignItems: 'center', gap: 5 }}>📎 Adjuntar archivos</button>
+            {archivos.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {archivos.map((f, i) => (
+                  <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: '#EEF3FA', color: '#185FA5', display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #d0dff0' }}>
+                    📎 {f.name} <span style={{ fontSize: 10, color: '#aaa' }}>({(f.size / 1024).toFixed(0)}KB)</span>
+                    <button onClick={() => quitarArchivo(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A32D2D', fontSize: 12, padding: 0, marginLeft: 2 }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
           {error && <div style={{ padding: '8px 12px', background: '#FCEBEB', border: '1px solid #f09595', borderRadius: 7, fontSize: 12, color: '#A32D2D' }}>{error}</div>}
         </div>
         <div style={{ padding: '12px 20px', borderTop: '1px solid #e8ecf0', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -367,6 +492,27 @@ export default function EmailPage() {
   const [resultadoSync,      setResultadoSync]      = useState(null)
   const [errorSync,          setErrorSync]          = useState(null)
   const [ultimaSync,         setUltimaSync]         = useState(null)
+  const [showFirma,          setShowFirma]          = useState(false)
+  const [firmaUsuario,       setFirmaUsuario]       = useState('')
+  const [todosUsuarios,      setTodosUsuarios]      = useState([])
+
+  const esAdmin = usuario?.rol === 'Super Administrador' || usuario?.rol === 'Administrador'
+
+  // Cargar firma del usuario
+  useEffect(() => {
+    if (!usuario?.uid) return
+    getDoc(doc(db, 'usuarios', usuario.uid)).then(snap => {
+      if (snap.exists()) setFirmaUsuario(snap.data().firmaEmail || '')
+    })
+  }, [usuario?.uid])
+
+  // Cargar usuarios (para admin)
+  useEffect(() => {
+    if (!esAdmin) return
+    getDocs(collection(db, 'usuarios')).then(snap => {
+      setTodosUsuarios(snap.docs.map(d => ({ uid: d.id, ...d.data() })))
+    })
+  }, [esAdmin])
 
   useEffect(() => {
     const col = collection(db, 'configuracion_segura', 'cuentas_email', 'lista')
@@ -463,7 +609,10 @@ export default function EmailPage() {
         <ModalImportar onCerrar={() => setShowImportar(false)} onImportar={importarHistoricos} />
       )}
       {showRedactar && (
-        <ModalRedactar cuentas={cuentas} inicial={redactarInicial} onCerrar={() => { setShowRedactar(false); setRedactarInicial(null) }} />
+        <ModalRedactar cuentas={cuentas} inicial={redactarInicial} firmaUsuario={firmaUsuario} onCerrar={() => { setShowRedactar(false); setRedactarInicial(null) }} />
+      )}
+      {showFirma && (
+        <ModalFirma uid={usuario?.uid} nombre={usuario?.nombre || usuario?.email} firmaActual={firmaUsuario} esAdmin={esAdmin} usuarios={todosUsuarios} onCerrar={() => setShowFirma(false)} onGuardar={(f) => setFirmaUsuario(f)} />
       )}
 
       {/* ════════ SIDEBAR ════════ */}
@@ -480,7 +629,10 @@ export default function EmailPage() {
                 </span>
               )}
             </div>
-            <button onClick={() => { setRedactarInicial(null); setShowRedactar(true) }} style={{ padding: '5px 12px', background: '#185FA5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>+ Redactar</button>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={() => setShowFirma(true)} title="Configurar firma" style={{ padding: '5px 8px', background: '#f0f2f5', color: '#555', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>✏️</button>
+              <button onClick={() => { setRedactarInicial(null); setShowRedactar(true) }} style={{ padding: '5px 12px', background: '#185FA5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>+ Redactar</button>
+            </div>
           </div>
 
           {/* Botón sincronizar */}

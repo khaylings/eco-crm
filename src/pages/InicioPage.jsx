@@ -27,10 +27,8 @@ const PERIODOS = [
 
 const SECCIONES_DEFAULT = [
   { key: 'top_cotizaciones',   label: 'Top cotizaciones',        activa: true  },
-  { key: 'por_cobrar',         label: 'Por cobrar',              activa: true  },
   { key: 'cots_vistas',        label: 'Más vistas por cliente',  activa: true  },
   { key: 'top_ventas',         label: 'Top ventas / facturas',   activa: true  },
-  { key: 'cots_por_vencer',    label: 'Por vencer',              activa: true  },
   { key: 'leads_recientes',    label: 'Leads recientes',         activa: false },
   { key: 'productos_top',      label: 'Productos más cotizados', activa: false },
 ]
@@ -122,6 +120,71 @@ function Badge({ estado }) {
     <span style={{ fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: c.bg, color: c.color }}>
       {estado}
     </span>
+  )
+}
+
+function TablaPorCobrar({ facturas }) {
+  const [orden, setOrden] = useState({ campo: 'dias', dir: 'asc' })
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+
+  const datos = facturas.map(f => {
+    const vence = f.fechaVencimiento ? new Date(f.fechaVencimiento + 'T00:00:00') : null
+    const dias = vence ? Math.round((vence - hoy) / 86400000) : 999
+    const monto = f.moneda === 'CRC' ? Number(f.saldo || f.total || 0) / Number(f.tasa || 519.5) : Number(f.saldo || f.total || 0)
+    const nombre = (f.vendedorNombre || '').split(' ')[0]
+    return { ...f, dias, monto, vendedorCorto: nombre }
+  })
+
+  const ordenado = [...datos].sort((a, b) => {
+    let va, vb
+    if (orden.campo === 'dias') { va = a.dias; vb = b.dias }
+    else if (orden.campo === 'monto') { va = a.monto; vb = b.monto }
+    else if (orden.campo === 'cliente') { va = (a.clienteNombre || '').toLowerCase(); vb = (b.clienteNombre || '').toLowerCase() }
+    else if (orden.campo === 'vendedor') { va = (a.vendedorCorto || '').toLowerCase(); vb = (b.vendedorCorto || '').toLowerCase() }
+    if (va < vb) return orden.dir === 'asc' ? -1 : 1
+    if (va > vb) return orden.dir === 'asc' ? 1 : -1
+    return 0
+  })
+
+  const cambiarOrden = (campo) => {
+    setOrden(prev => prev.campo === campo ? { campo, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { campo, dir: 'asc' })
+  }
+
+  const flecha = (campo) => orden.campo === campo ? (orden.dir === 'asc' ? ' ▲' : ' ▼') : ''
+  const thStyle = { fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.3px', padding: '6px 8px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', borderBottom: '1px solid #f0f0f0' }
+
+  return (
+    <div style={{ background: '#fff', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 10, padding: 14 }}>
+      <SeccionHeader label="Por cobrar" />
+      {ordenado.length === 0 ? <div style={{ fontSize: 12, color: '#aaa', textAlign: 'center', padding: 16 }}>Sin facturas pendientes</div> : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th onClick={() => cambiarOrden('cliente')} style={{ ...thStyle, textAlign: 'left' }}>Cliente{flecha('cliente')}</th>
+              <th onClick={() => cambiarOrden('vendedor')} style={{ ...thStyle, textAlign: 'left' }}>Vendedor{flecha('vendedor')}</th>
+              <th onClick={() => cambiarOrden('monto')} style={{ ...thStyle, textAlign: 'right' }}>Monto{flecha('monto')}</th>
+              <th onClick={() => cambiarOrden('dias')} style={{ ...thStyle, textAlign: 'right' }}>Días{flecha('dias')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ordenado.map((f, i) => {
+              const vencido = f.dias < 0
+              return (
+                <tr key={f.id || i} style={{ borderBottom: '1px solid #f8f8f8' }}>
+                  <td style={{ padding: '5px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{f.clienteNombre || '—'}</td>
+                  <td style={{ padding: '5px 8px', color: '#888' }}>{f.vendedorCorto || '—'}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: '#A32D2D' }}>${Number(f.monto).toLocaleString('en-US', { maximumFractionDigits: 0 })}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, color: vencido ? '#A32D2D' : f.dias <= 7 ? '#854F0B' : '#3B6D11' }}>
+                    {vencido ? `${f.dias}d` : `+${f.dias}d`}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
   )
 }
 
@@ -235,7 +298,7 @@ export default function InicioPage() {
         run(query(collection(db, 'leads'), ...filtroVend, where('estado', '==', 'perdido'), where('creadoEn', '>=', rango.ts.desde), where('creadoEn', '<=', rango.ts.hasta))),
         run(query(collection(db, 'cotizaciones'), ...filtroVend, where('estado', 'in', ['Enviada', 'Vista']))),
         run(query(collection(db, 'conversaciones'), ...(verTodos ? [] : [where('agente', '==', uidFiltro)]), where('noLeidos', '>', 0))),
-        run(query(collection(db, 'facturas'), ...filtroVend, where('estado', '==', 'Pendiente'))),
+        run(query(collection(db, 'facturas'), ...filtroVend, where('estado', 'in', ['Sin Pagar', 'Parcial', 'Pendiente']))),
         run(query(collection(db, 'cotizaciones'), ...filtroVend, where('creadoEn', '>=', rango.ts.desde), where('creadoEn', '<=', rango.ts.hasta))),
         run(query(collection(db, 'facturas'), ...filtroVend, where('fechaEmision', '>=', rango.str.desde), where('fechaEmision', '<=', rango.str.hasta))),
         run(query(collection(db, 'leads'), ...filtroVend, where('creadoEn', '>=', rango.ts.desde), orderBy('creadoEn', 'desc'))),
@@ -295,7 +358,18 @@ export default function InicioPage() {
 
       const porCobrar = (factPendSnap.docs || [])
         .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (a.fechaVencimiento || '').localeCompare(b.fechaVencimiento || '')).slice(0, 7)
+
+      // Top clientes que deben
+      const clienteDeuda = {}
+      factPendSnap.docs?.forEach(d => {
+        const f = d.data()
+        const nombre = f.clienteNombre || f.cliente || 'Sin cliente'
+        const monto = f.moneda === 'CRC' ? Number(f.saldo || f.total || 0) / Number(f.tasa || 519.5) : Number(f.saldo || f.total || 0)
+        if (!clienteDeuda[nombre]) clienteDeuda[nombre] = { nombre, monto: 0, facturas: 0 }
+        clienteDeuda[nombre].monto += monto
+        clienteDeuda[nombre].facturas += 1
+      })
+      const topDeudores = Object.values(clienteDeuda).sort((a, b) => b.monto - a.monto).slice(0, 5)
 
       const hoyStr = new Date().toISOString().split('T')[0]
       const en14   = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
@@ -330,7 +404,7 @@ export default function InicioPage() {
           porCobrarCount: factPendSnap.size,
           porCobrarMonto,
         },
-        topCots, topFacturas, masVistas, porCobrar, porVencer, leadsRec, topProductos,
+        topCots, topFacturas, masVistas, porCobrar, porVencer, leadsRec, topProductos, topDeudores,
       })
 
       // Actividad reciente — combina leads + cotizaciones recientes
@@ -384,7 +458,7 @@ export default function InicioPage() {
     { titulo: 'Ventas del período', valor: loading ? '—' : fmt(m.ventasMes),  sub: `${m.ventasCount || 0} cotizaciones aceptadas`, color: '#3B6D11', acento: '#3B6D11', ruta: '/ventas'   },
     { titulo: 'Facturado (sin IVA)',valor: loading ? '—' : fmt(m.facturadoSinIva), sub: 'base imponible (USD)',      color: '#854F0B', acento: '#854F0B', ruta: '/facturas' },
     { titulo: 'Cots. pendientes',   valor: m.cotsPendientes,  sub: 'sin respuesta del cliente',  color: '#854F0B', acento: '#854F0B', ruta: '/ventas'   },
-    { titulo: 'Por cobrar',         valor: loading ? '—' : fmt(m.porCobrarMonto), sub: `${m.porCobrarCount || 0} facturas pendientes (USD)`, color: '#A32D2D', acento: '#A32D2D', ruta: '/facturas' },
+    { titulo: 'Por cobrar',         valor: loading ? '—' : fmt(m.porCobrarMonto), sub: `${m.porCobrarCount || 0} facturas pendientes (USD)`, color: '#A32D2D', acento: '#A32D2D', ruta: '/finanzas?tab=cxc' },
   ]
 
   const fechaHoy = ahora.toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -585,25 +659,6 @@ export default function InicioPage() {
             </div>
           )}
 
-          {secActiva('por_cobrar') && (
-            <div style={s.card}>
-              <SeccionHeader label="Por cobrar — facturas pendientes" />
-              <TablaCont
-                headers={[{ k:'c', label:'Cliente' }, { k:'v', label:'Vendedor' }, { k:'s', label:'Saldo', right:true }, { k:'f', label:'Vence', nowrap:true }]}
-                rows={(datos?.porCobrar || []).map(f => {
-                  const vence = f.fechaVencimiento || '—'
-                  const hoyStr = new Date().toISOString().split('T')[0]
-                  const vencido = vence < hoyStr
-                  return [
-                    <span style={{ fontSize: 12 }}>{f.clienteNombre || '—'}</span>,
-                    <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{f.vendedorNombre || '—'}</span>,
-                    <span style={{ fontWeight: 500, color: '#A32D2D' }}>{fmt2(f.saldo || f.total || 0)}</span>,
-                    <span style={{ fontSize: 11, color: vencido ? '#A32D2D' : 'var(--color-text-tertiary)', fontWeight: vencido ? 500 : 400 }}>{vence}</span>,
-                  ]
-                })}
-              />
-            </div>
-          )}
 
           {secActiva('cots_vistas') && (
             <div style={s.card}>
@@ -634,20 +689,6 @@ export default function InicioPage() {
             </div>
           )}
 
-          {secActiva('cots_por_vencer') && (
-            <div style={s.card}>
-              <SeccionHeader label="Cotizaciones por vencer (próximos 14 días)" />
-              <TablaCont
-                headers={[{ k:'c', label:'Cliente' }, { k:'v', label:'Vendedor' }, { k:'m', label:'Monto', right:true }, { k:'f', label:'Vence', nowrap:true }]}
-                rows={(datos?.porVencer || []).map(c => [
-                  <span style={{ fontSize: 12 }}>{c.clienteNombre || '—'}</span>,
-                  <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{c.vendedorNombre || '—'}</span>,
-                  <span style={{ fontWeight: 500 }}>{fmt2(calcTotalCot(c))}</span>,
-                  <span style={{ fontSize: 11, color: '#854F0B', fontWeight: 500 }}>{c.fechaVencimiento}</span>,
-                ])}
-              />
-            </div>
-          )}
 
           {secActiva('leads_recientes') && (
             <div style={s.card}>
