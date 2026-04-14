@@ -734,13 +734,15 @@ exports.webhookWaSender = onRequest({ cors: true, timeoutSeconds: 120, memory: '
       })
       convId = newRef.id
     } else {
-      // Actualizar conversación existente
-      const noLeidosActual = convDoc.data().noLeidos || 0
+      // Actualizar conversación existente y reabrir si estaba cerrada/archivada
+      const convData = convDoc.data()
+      const noLeidosActual = convData.noLeidos || 0
       await convsRef.doc(convId).update({
         ultimoMensaje: body || `[${tipo}]`,
         timestamp: now,
         noLeidos: noLeidosActual + 1,
         ...(pushName ? { nombre: pushName } : {}),
+        ...(convData.archivada ? { archivada: false } : {}),
       })
     }
 

@@ -891,7 +891,7 @@ export default function ChatsPage() {
           <div style={{ fontSize:10, color:'#bbb', marginBottom:6, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <span>{listaFiltrada.length} conversación{listaFiltrada.length!==1?'es':''}</span>
             <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-              <button onClick={() => setMostrarArchivadas(v => !v)} style={{ fontSize:10, color:mostrarArchivadas?'#A32D2D':'#888', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'inherit' }}>{mostrarArchivadas?'Ver activas':'📦 Archivadas'}</button>
+              <button onClick={() => setMostrarArchivadas(v => !v)} style={{ fontSize:10, color:mostrarArchivadas?'#A32D2D':'#888', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'inherit' }}>{mostrarArchivadas?'Ver activas':'📦 Cerradas'}</button>
               {(filtroNoLeidos!=='todos'||filtroEtiqueta||filtroEtapa||busqueda)&&<button onClick={()=>{setFiltroNoLeidos('todos');setFiltroEtiqueta('');setFiltroEtapa('');setBusqueda('')}} style={{ fontSize:10, color:'#185FA5', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'inherit' }}>Limpiar</button>}
             </div>
           </div>

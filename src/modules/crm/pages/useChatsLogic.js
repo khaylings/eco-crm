@@ -251,7 +251,7 @@ export default function useChatsLogic() {
       const data = await res.json()
       if (data?.success !== false) {
         await addDoc(collection(db, `conversaciones/${chatActivo.id}/mensajes`), {
-          body: texto, fromMe: true, tipo: 'texto', timestamp: serverTimestamp(),
+          body: texto, fromMe: true, tipo: 'texto', timestamp: Math.floor(Date.now() / 1000),
           autorNombre: usuarioActual?.nombre || usuarioActual?.email || 'Agente',
           autorFoto:   usuarioActual?.fotoURL || null,
           ...(respondiendo ? { respondiendo: { id: respondiendo.id, body: respondiendo.body, autorNombre: respondiendo.fromMe ? (usuarioActual?.nombre || 'Agente') : chatActivo.nombre } } : {}),
@@ -270,7 +270,7 @@ export default function useChatsLogic() {
     setMensaje('')
     try {
       await addDoc(collection(db, `conversaciones/${chatActivo.id}/mensajes`), {
-        body: texto, fromMe: true, tipo: 'nota_interna', timestamp: serverTimestamp(),
+        body: texto, fromMe: true, tipo: 'nota_interna', timestamp: Math.floor(Date.now() / 1000),
         autorNombre: usuarioActual?.nombre || usuarioActual?.email || 'Agente',
         autorFoto:   usuarioActual?.fotoURL || null,
       })
@@ -343,7 +343,7 @@ export default function useChatsLogic() {
           body: JSON.stringify({ to: `+${chatActivo.telefono?.replace(/[^0-9]/g, '')}`, url, caption: '' }),
         })
         await addDoc(collection(db, `conversaciones/${chatActivo.id}/mensajes`), {
-          body: '', tipo: 'sticker', mediaUrl: url, fromMe: true, timestamp: serverTimestamp(),
+          body: '', tipo: 'sticker', mediaUrl: url, fromMe: true, timestamp: Math.floor(Date.now() / 1000),
           autorNombre: usuarioActual?.nombre || 'Agente', autorFoto: usuarioActual?.fotoURL || null,
         })
         await updateDoc(doc(db, 'conversaciones', chatActivo.id), { ultimoMensaje: '🎭 Sticker', timestamp: Math.floor(Date.now() / 1000) })
@@ -375,7 +375,7 @@ export default function useChatsLogic() {
       const url  = await getDownloadURL(r)
       const tipo = esImagen ? 'image' : esVideo ? 'video' : esAudio ? 'audio' : 'file'
       const colPath = tipoActivo === 'wa' ? `conversaciones/${chatActivo.id}/mensajes` : `chats_internos/${chatActivo.id}/mensajes`
-      const datos = { body: file.name, tipo, mediaUrl: url, fromMe: true, timestamp: serverTimestamp(), autorNombre: usuarioActual?.nombre || 'Agente', autorFoto: usuarioActual?.fotoURL || null }
+      const datos = { body: file.name, tipo, mediaUrl: url, fromMe: true, timestamp: Math.floor(Date.now() / 1000), autorNombre: usuarioActual?.nombre || 'Agente', autorFoto: usuarioActual?.fotoURL || null }
       if (tipoActivo === 'interno') { datos.autorId = usuarioActual?.uid; delete datos.fromMe }
       await addDoc(collection(db, colPath), datos)
       const label = esImagen ? '📷 Imagen' : esVideo ? '🎬 Video' : esAudio ? '🎵 Audio' : `📎 ${file.name}`
@@ -399,7 +399,7 @@ export default function useChatsLogic() {
     try {
       if (destino._tipo === 'wa') {
         if (texto) await fetch(`${WASENDER_URL}/send-message`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${WASENDER_TOKEN}` }, body: JSON.stringify({ to: `+${destino.telefono?.replace(/[^0-9]/g, '')}`, text: `↪ Reenviado:\n${texto}` }) })
-        await addDoc(collection(db, `conversaciones/${destino.id}/mensajes`), { body: texto, tipo, mediaUrl, fromMe: true, reenviado: true, timestamp: serverTimestamp(), autorNombre: usuarioActual?.nombre || 'Agente', autorFoto: usuarioActual?.fotoURL || null })
+        await addDoc(collection(db, `conversaciones/${destino.id}/mensajes`), { body: texto, tipo, mediaUrl, fromMe: true, reenviado: true, timestamp: Math.floor(Date.now() / 1000), autorNombre: usuarioActual?.nombre || 'Agente', autorFoto: usuarioActual?.fotoURL || null })
         await updateDoc(doc(db, 'conversaciones', destino.id), { ultimoMensaje: texto || '↪ Reenviado', timestamp: Math.floor(Date.now() / 1000) })
       } else {
         await addDoc(collection(db, `chats_internos/${destino.id}/mensajes`), { body: texto, tipo, mediaUrl, reenviado: true, autorId: usuarioActual?.uid, autorNombre: usuarioActual?.nombre || 'Agente', autorFoto: usuarioActual?.fotoURL || null, timestamp: serverTimestamp() })
