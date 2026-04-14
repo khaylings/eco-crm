@@ -9,8 +9,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { collection, getDocs, getDoc, doc, query, where, orderBy, Timestamp } from 'firebase/firestore'
-import UserAvatar from '../shared/components/UserAvatar'
+import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -194,7 +193,6 @@ export default function InicioPage() {
   const [fechaHasta,     setFechaHasta]     = useState('')
   const [vendedorFiltro, setVendedorFiltro] = useState('todos')
   const [vendedores,     setVendedores]     = useState([])
-  const [tc,             setTc]             = useState({ venta: 520, compra: 520 })
   const [secciones,      setSecciones]      = useState(SECCIONES_DEFAULT)
   const [configOpen,     setConfigOpen]     = useState(false)
   const [datos,          setDatos]          = useState(null)
@@ -217,9 +215,6 @@ export default function InicioPage() {
   }, [uid])
 
   useEffect(() => { if (uid) cargar() }, [uid, periodo, fechaDesde, fechaHasta, vendedorFiltro])
-  useEffect(() => { getDoc(doc(db, 'configuracion', 'tasas')).then(snap => { if (snap.exists()) setTc({ venta: Number(snap.data().venta || 520), compra: Number(snap.data().compra || 520) }) }).catch(() => {}) }, [])
-
-  const toUSD = (monto, moneda) => { if (!monto) return 0; return moneda === 'USD' ? Number(monto) : Number(monto) / (tc.venta || 520) }
 
   const cargar = async () => {
     if (!uid) return
@@ -252,12 +247,12 @@ export default function InicioPage() {
       cotsAceptadas.forEach(d => {
         const c = d.data()
         const total = calcTotalCot(c)
-        ventasMes += toUSD(total, c.moneda)
+        ventasMes += c.moneda === 'CRC' ? total / Number(c.tasa || 519.5) : total
       })
 
       let facturadoSinIva = 0, porCobrarMonto = 0
-      factPeriodoSnap.docs?.forEach(d => { const f = d.data(); facturadoSinIva += toUSD(baseSinIva(f), f.moneda) })
-      factPendSnap.docs?.forEach(d => { const f = d.data(); porCobrarMonto += toUSD(Number(f.saldo || f.total || 0), f.moneda) })
+      factPeriodoSnap.docs?.forEach(d => { facturadoSinIva += baseSinIva(d.data()) })
+      factPendSnap.docs?.forEach(d => { porCobrarMonto += Number(d.data().saldo || d.data().total || 0) })
 
       const cerrados = (ganadosSnap.size || 0) + (perdidosSnap.size || 0)
       const tasaConversion = cerrados > 0 ? Math.round((ganadosSnap.size / cerrados) * 100) : 0
@@ -329,35 +324,38 @@ export default function InicioPage() {
         topCots, topFacturas, masVistas, porCobrar, porVencer, leadsRec, topProductos,
       })
 
-      // Actividad reciente — combina leads + cotizaciones + facturas + pagos + leads ganados
+      // Actividad reciente — combina leads + cotizaciones recientes
       const acts = []
-      ;(leadsRecSnap.docs || []).slice(0, 5).forEach(d => {
+      ;(leadsRecSnap.docs || []).slice(0, 4).forEach((d, i) => {
         const l = d.data()
-        acts.push({ id: d.id+'_l', tipo:'lead', icono:'🎯', color:'#185FA5', nombre:l.vendedorNombre||l.vendedor||'Agente', uid:l.vendedorId, descripcion:'creó nuevo lead', entidad:l.nombre||'Sin nombre', ts:l.creadoEn })
-      })
-      ;(cotsPeriodoSnap.docs || []).slice(0, 5).forEach(d => {
-        const c = d.data()
-        const desc = c.estado === 'Aceptada' ? 'cotización aceptada' : c.estado === 'Enviada' ? 'envió cotización' : 'creó cotización'
-        acts.push({ id: d.id+'_c', tipo:'cotizacion', icono:'📄', color:'#3B6D11', nombre:c.vendedorNombre||'Agente', uid:c.vendedorId, descripcion:desc, entidad:c.clienteNombre||c.empresaNombre||'Cliente', ts:c.creadoEn })
-      })
-      ;(factPeriodoSnap.docs || []).slice(0, 5).forEach(d => {
-        const f = d.data()
-        acts.push({ id: d.id+'_f', tipo:'factura', icono:'🧾', color:'#854F0B', nombre:f.vendedorNombre||'Agente', uid:f.vendedorId, descripcion:'generó factura', entidad:`${f.numero} — ${f.clienteNombre||''}`, ts:f.creadoEn })
-        // Pagos de la factura
-        ;(f.pagos || []).forEach((p, pi) => {
-          acts.push({ id: d.id+'_p'+pi, tipo:'pago', icono:'💰', color:'#0F6E56', nombre:f.vendedorNombre||'Agente', uid:f.vendedorId, descripcion:'registró pago', entidad:`${f.numero} — ${fmt(p.monto, f.moneda)}`, ts:{ toDate:()=>new Date(p.registradoEn||p.fecha||0) } })
+        acts.push({
+          id: d.id + '_l',
+          tipo: 'lead',
+          nombre: l.vendedorNombre || 'Agente',
+          descripcion: `creó nuevo lead`,
+          entidad: l.nombre || 'Sin nombre',
+          ts: l.creadoEn,
+          idx: i,
         })
       })
-      ;(ganadosSnap.docs || []).slice(0, 3).forEach(d => {
-        const l = d.data()
-        acts.push({ id: d.id+'_g', tipo:'ganado', icono:'🏆', color:'#3B6D11', nombre:l.vendedorNombre||l.vendedor||'Agente', uid:l.vendedorId, descripcion:'ganó lead', entidad:l.nombre||'', ts:l.creadoEn })
+      ;(cotsPeriodoSnap.docs || []).slice(0, 4).forEach((d, i) => {
+        const c = d.data()
+        acts.push({
+          id: d.id + '_c',
+          tipo: c.estado === 'Aceptada' ? 'cotizacion' : 'cotizacion',
+          nombre: c.vendedorNombre || 'Agente',
+          descripcion: c.estado === 'Aceptada' ? 'cerró cotización' : 'envió cotización',
+          entidad: c.clienteNombre || c.empresaNombre || 'Cliente',
+          ts: c.creadoEn,
+          idx: i + 4,
+        })
       })
       acts.sort((a, b) => {
         const ta = a.ts?.toDate ? a.ts.toDate().getTime() : 0
         const tb = b.ts?.toDate ? b.ts.toDate().getTime() : 0
         return tb - ta
       })
-      setActividad(acts.slice(0, 10))
+      setActividad(acts.slice(0, 6))
 
     } catch (e) {
       console.error('Error tablero:', e)
@@ -498,9 +496,11 @@ export default function InicioPage() {
             {actividad.length === 0 && !loading && (
               <div style={{ textAlign: 'center', padding: '20px 0', fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>Sin actividad registrada</div>
             )}
-            {actividad.map((act, i) => (
+            {actividad.map((act, i) => {
+              const tipo = TIPOS_ACTIVIDAD[act.tipo] || TIPOS_ACTIVIDAD.lead
+              return (
                 <div key={act.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '7px 0', borderBottom: i < actividad.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}>
-                  <UserAvatar nombre={act.nombre} uid={act.uid} size={28} />
+                  <AvatarLetras nombre={act.nombre} idx={act.idx} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
                       <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{act.nombre}</span>
@@ -509,69 +509,45 @@ export default function InicioPage() {
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 1 }}>{tiempoRelativo(act.ts)}</div>
                   </div>
-                  <span style={{ fontSize: 14, flexShrink: 0 }}>{act.icono}</span>
+                  <span style={{ fontSize: 10, background: tipo.bg, color: tipo.color, padding: '2px 7px', borderRadius: 10, whiteSpace: 'nowrap', flexShrink: 0 }}>{tipo.label}</span>
                 </div>
-            ))}
+              )
+            })}
           </div>
 
-          {/* Por cobrar */}
+          {/* Pipeline CRM */}
           <div style={s.card}>
-            <SeccionHeader label="Por cobrar — facturas pendientes" />
-            <TablaCont
-              headers={[{ k:'c', label:'Cliente' }, { k:'v', label:'Vendedor' }, { k:'s', label:'Saldo', right:true }, { k:'f', label:'Vence', nowrap:true }]}
-              rows={(datos?.porCobrar || []).slice(0, 6).map(f => {
-                const vence = f.fechaVencimiento || '—'
-                const hoyStr = new Date().toISOString().split('T')[0]
-                const vencido = vence < hoyStr
-                return [
-                  <span style={{ fontSize: 12 }}>{f.clienteNombre || '—'}</span>,
-                  <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', display:'flex', alignItems:'center', gap:4 }}><UserAvatar nombre={f.vendedorNombre} uid={f.vendedorId} size={16} />{f.vendedorNombre || '—'}</span>,
-                  <span style={{ fontWeight: 500, color: '#A32D2D' }}>{fmt2(f.saldo || f.total || 0)}</span>,
-                  <span style={{ fontSize: 11, color: vencido ? '#A32D2D' : 'var(--color-text-tertiary)', fontWeight: vencido ? 500 : 400 }}>{vence}</span>,
-                ]
-              })}
-            />
-
-            {/* Leads del mes por etapa + ganados/perdidos */}
-            <div style={{ marginTop: 16, paddingTop: 14, borderTop: '0.5px solid var(--color-border-tertiary)' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.5px' }}>Leads del período por etapa</div>
-              {pipeline.length === 0 && !loading && (
-                <div style={{ textAlign: 'center', padding: '10px 0', fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>Sin leads</div>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {pipeline.map((p, i) => {
-                  const colores = ['#378ADD', '#1D9E75', '#BA7517', '#D4537E', '#639922', '#534AB7']
-                  const col = colores[i % colores.length]
-                  return (
-                    <div key={p.etapa} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', width: 85, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.etapa}</span>
-                      <div style={{ flex: 1, height: 5, background: 'var(--color-background-secondary)', borderRadius: 3, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${Math.max(p.pct, 3)}%`, background: col, borderRadius: 3 }} />
-                      </div>
-                      <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', width: 20, textAlign: 'right', flexShrink: 0 }}>{p.count}</span>
+            <SeccionHeader label="Pipeline CRM — estado actual" />
+            {pipeline.length === 0 && !loading && (
+              <div style={{ textAlign: 'center', padding: '20px 0', fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>Sin leads activos</div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {pipeline.map((p, i) => {
+                const colores = ['#378ADD', '#1D9E75', '#BA7517', '#D4537E', '#639922', '#534AB7']
+                const col = colores[i % colores.length]
+                return (
+                  <div key={p.etapa} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', width: 90, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.etapa}</span>
+                    <div style={{ flex: 1, height: 5, background: 'var(--color-background-secondary)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.max(p.pct, 3)}%`, background: col, borderRadius: 3, transition: 'width .5s ease' }} />
                     </div>
-                  )
-                })}
-                <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3B6D11' }} />
-                    <span style={{ fontSize: 11, color: '#3B6D11', fontWeight: 600 }}>Ganados: {m.leadsGanados || 0}</span>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', width: 20, textAlign: 'right', flexShrink: 0 }}>{p.count}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#A32D2D' }} />
-                    <span style={{ fontSize: 11, color: '#A32D2D', fontWeight: 600 }}>Perdidos: {m.leadsPerdidos || 0}</span>
-                  </div>
-                </div>
-              </div>
+                )
+              })}
             </div>
 
             {/* Chats sin atender */}
             {m.chatsSinResponder > 0 && (
               <div style={{ marginTop: 16, paddingTop: 14, borderTop: '0.5px solid var(--color-border-tertiary)' }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: 8 }}>Chats sin atender</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => navigate('/chats')}>
-                  <div style={{ width: 30, height: 30, borderRadius: 8, background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💬</div>
+                  <div style={{ width: 34, height: 34, borderRadius: 8, background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F6E56" strokeWidth="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  </div>
                   <div>
-                    <div style={{ fontSize: 16, fontWeight: 500, color: '#0F6E56' }}>{m.chatsSinResponder} chats sin atender</div>
+                    <div style={{ fontSize: 18, fontWeight: 500, color: '#0F6E56' }}>{m.chatsSinResponder}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>conversaciones abiertas</div>
                   </div>
                 </div>
               </div>
@@ -597,6 +573,25 @@ export default function InicioPage() {
             </div>
           )}
 
+          {secActiva('por_cobrar') && (
+            <div style={s.card}>
+              <SeccionHeader label="Por cobrar — facturas pendientes" />
+              <TablaCont
+                headers={[{ k:'c', label:'Cliente' }, { k:'v', label:'Vendedor' }, { k:'s', label:'Saldo', right:true }, { k:'f', label:'Vence', nowrap:true }]}
+                rows={(datos?.porCobrar || []).map(f => {
+                  const vence = f.fechaVencimiento || '—'
+                  const hoyStr = new Date().toISOString().split('T')[0]
+                  const vencido = vence < hoyStr
+                  return [
+                    <span style={{ fontSize: 12 }}>{f.clienteNombre || '—'}</span>,
+                    <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{f.vendedorNombre || '—'}</span>,
+                    <span style={{ fontWeight: 500, color: '#A32D2D' }}>{fmt2(f.saldo || f.total || 0)}</span>,
+                    <span style={{ fontSize: 11, color: vencido ? '#A32D2D' : 'var(--color-text-tertiary)', fontWeight: vencido ? 500 : 400 }}>{vence}</span>,
+                  ]
+                })}
+              />
+            </div>
+          )}
 
           {secActiva('cots_vistas') && (
             <div style={s.card}>
