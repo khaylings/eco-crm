@@ -106,7 +106,9 @@ const columnasRef = () => collection(db, 'pipeline_columnas')
 
 export const obtenerColumnas = async () => {
   const snap = await getDocs(query(columnasRef(), orderBy('orden')))
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const cols = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  cols.sort((a, b) => { if (a.fija && !b.fija) return 1; if (!a.fija && b.fija) return -1; return (a.orden ?? 0) - (b.orden ?? 0) })
+  return cols
 }
 
 export const crearColumna = (data) =>

@@ -83,6 +83,12 @@ export default function CRMPage() {
       obtenerColumnas(), obtenerLeads(), obtenerContactos(),
       obtenerEmpresas(), obtenerOrigenes()
     ])
+    // Ordenar: columnas normales primero por orden, fijas al final
+    c.sort((a, b) => {
+      if (a.fija && !b.fija) return 1
+      if (!a.fija && b.fija) return -1
+      return (a.orden ?? 0) - (b.orden ?? 0)
+    })
     setColumnas(c)
     setLeads(l)
     setContactos(ct)
@@ -134,7 +140,8 @@ export default function CRMPage() {
 
   const agregarColumna = async () => {
     if (!nuevaColumna.trim()) return
-    await crearColumna({ nombre: nuevaColumna.trim(), orden: columnas.length, color: '#1a3a5c' })
+    const normales = columnas.filter(c => !c.fija)
+    await crearColumna({ nombre: nuevaColumna.trim(), orden: normales.length, color: '#1a3a5c' })
     setNuevaColumna('')
     setMostrarNuevaColumna(false)
     cargar()
@@ -149,11 +156,16 @@ export default function CRMPage() {
 
   const handleDropColumna = async (destColId) => {
     if (!draggingCol || draggingCol === destColId) { setDraggingCol(null); setDragOverCol(null); return }
-    const fromIdx = columnas.findIndex(c => c.id === draggingCol)
-    const toIdx = columnas.findIndex(c => c.id === destColId)
+    const colOrigen = columnas.find(c => c.id === draggingCol)
+    const colDestino = columnas.find(c => c.id === destColId)
+    // No permitir mover columnas fijas ni mover sobre columnas fijas
+    if (colOrigen?.fija || colDestino?.fija) { setDraggingCol(null); setDragOverCol(null); return }
+    const normales = columnas.filter(c => !c.fija)
+    const fijas = columnas.filter(c => c.fija)
+    const fromIdx = normales.findIndex(c => c.id === draggingCol)
+    const toIdx = normales.findIndex(c => c.id === destColId)
     if (fromIdx === -1 || toIdx === -1) return
-    // Reordenar: asignar nuevos valores de orden
-    const reordenadas = [...columnas]
+    const reordenadas = [...normales]
     const [movida] = reordenadas.splice(fromIdx, 1)
     reordenadas.splice(toIdx, 0, movida)
     for (let i = 0; i < reordenadas.length; i++) {
@@ -399,10 +411,7 @@ export default function CRMPage() {
       {/* KANBAN */}
       {vista === 'kanban' && (
         <div style={s.kanbanWrapper}>
-          {columnas.filter(col => {
-            const nombre = (col.nombre || '').toLowerCase()
-            return nombre !== 'ganado' && nombre !== 'perdido'
-          }).map((col) => (
+          {columnas.map((col) => (
             <div key={col.id}
               style={{ ...s.columna, ...(dragOver === col.id ? s.columnaOver : {}), ...(dragOverCol === col.id ? { borderTop: '3px solid #185FA5' } : {}), opacity: draggingCol === col.id ? 0.5 : 1 }}
               onDragOver={e => { e.preventDefault(); if (draggingCol) setDragOverCol(col.id); else setDragOver(col.id) }}
@@ -416,16 +425,17 @@ export default function CRMPage() {
                     onKeyDown={e => { if (e.key === 'Enter') renombrarColumna(col.id, e.target.value) }} />
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
-                    <span style={s.colNombre} onClick={() => esSuperiorOAdmin && setEditandoColumna(col.id)}>{col.nombre}</span>
+                    <span style={s.colNombre} onClick={() => esSuperiorOAdmin && !col.fija && setEditandoColumna(col.id)}>{col.nombre}</span>
                     <span style={s.colCount}>{leadsPorColumna(col.id).length}</span>
                   </div>
                 )}
-                {esSuperiorOAdmin && (
+                {esSuperiorOAdmin && !col.fija && (
                   <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                     <span draggable onDragStart={e => { e.stopPropagation(); setDraggingCol(col.id); e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDraggingCol(null); setDragOverCol(null) }} style={{ cursor: 'grab', color: '#bbb', fontSize: 12, padding: '0 3px', userSelect: 'none' }} title="Arrastrá para reordenar">⠿</span>
                     <button style={s.btnBorrarCol} onClick={() => borrarColumna(col.id)} title="Eliminar columna">✕</button>
                   </div>
                 )}
+                {col.fija && <span style={{ fontSize: 9, color: '#999', padding: '2px 6px', background: '#f0f0f0', borderRadius: 4 }}>Fija</span>}
               </div>
 
               {totalPorColumna(col.id) > 0 && (

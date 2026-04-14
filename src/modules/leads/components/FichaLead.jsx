@@ -54,8 +54,9 @@ export default function FichaLead({ lead, columnas, contactos, empresas, origene
   const [guardando, setGuardando] = useState(false)
   const notasEndRef = useRef(null)
   const [usuarios, setUsuarios] = useState([])
+  const [vendedores, setVendedores] = useState([])
 
-  // Cargar usuarios y activos
+  // Cargar usuarios, empleados asignables a ventas y activos
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'usuarios'), snap => {
       setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.activo !== false))
@@ -63,7 +64,11 @@ export default function FichaLead({ lead, columnas, contactos, empresas, origene
     const u2 = onSnapshot(collection(db, 'activos'), snap => {
       setActivos(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     })
-    return () => { u1(); u2() }
+    const u3 = onSnapshot(collection(db, 'empleados'), snap => {
+      const emps = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setVendedores(emps.filter(e => e.activo !== false && e.asignableVentas))
+    })
+    return () => { u1(); u2(); u3() }
   }, [])
 
   // Auto-asignar vendedor al crear
@@ -588,13 +593,13 @@ export default function FichaLead({ lead, columnas, contactos, empresas, origene
                 <div style={s.campo}>
                   <label style={s.label}>Vendedor asignado</label>
                   <select style={s.input} value={form.vendedorId} onChange={e => {
-                    const u = usuarios.find(u => u.id === e.target.value)
+                    const emp = vendedores.find(v => v.usuarioId === e.target.value)
                     set('vendedorId', e.target.value)
-                    set('vendedor', u?.nombre || u?.email || '')
+                    set('vendedor', emp ? `${emp.nombre || ''} ${emp.apellido || ''}`.trim() : '')
                   }}>
                     <option value="">— Seleccionar —</option>
-                    {usuarios.map(u => (
-                      <option key={u.id} value={u.id}>{u.nombre || u.email}{u.id === uidActual ? ' (yo)' : ''}</option>
+                    {vendedores.filter(v => v.usuarioId).map(v => (
+                      <option key={v.id} value={v.usuarioId}>{`${v.nombre || ''} ${v.apellido || ''}`.trim()}{v.usuarioId === uidActual ? ' (yo)' : ''}</option>
                     ))}
                   </select>
                 </div>

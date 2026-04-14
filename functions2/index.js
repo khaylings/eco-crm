@@ -206,6 +206,27 @@ exports.cambiarPasswordUsuario = onCall(async (request) => {
   return { success: true }
 })
 
+// ─── Crear usuario (Admin SDK — no cambia la sesión del admin) ───────────────
+exports.crearUsuario = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.')
+  const db        = getFirestore()
+  const callerDoc = await db.collection('usuarios').doc(request.auth.uid).get()
+  if (!callerDoc.exists) throw new HttpsError('not-found', 'Tu usuario no existe.')
+  const callerRol = callerDoc.data().rol
+  if (callerRol !== 'Super Administrador' && callerRol !== 'Administrador')
+    throw new HttpsError('permission-denied', 'No tenés permiso para crear usuarios.')
+  const { email, password, nombre, rol, activo } = request.data
+  if (!email || !password || !nombre) throw new HttpsError('invalid-argument', 'Faltan parámetros obligatorios.')
+  if (password.length < 6) throw new HttpsError('invalid-argument', 'La contraseña debe tener al menos 6 caracteres.')
+  const userRecord = await getAuth().createUser({ email, password, displayName: nombre })
+  await db.collection('usuarios').doc(userRecord.uid).set({
+    nombre, email, rol: rol || 'Solo lectura',
+    activo: activo !== false, creadoEn: new Date().toISOString(),
+    puedeResetearPassword: false,
+  })
+  return { success: true, uid: userRecord.uid }
+})
+
 // ─── Descifrar media WhatsApp ─────────────────────────────────────────────────
 exports.decryptMedia = onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*')

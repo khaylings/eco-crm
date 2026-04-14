@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { storage } from '../../../firebase/config'
-import { createUserWithEmailAndPassword, getAuth } from 'firebase/auth'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { db } from '../../../firebase/firestore'
 import { useAuth } from '../../../context/AuthContext'
@@ -186,13 +185,9 @@ export default function Usuarios() {
           nombre: form.nombre, rol: form.rol, activo: form.activo,
         })
       } else {
-        const authInst = getAuth()
-        const cred = await createUserWithEmailAndPassword(authInst, form.email, form.password)
-        await setDoc(doc(db, 'usuarios', cred.user.uid), {
-          nombre: form.nombre, email: form.email, rol: form.rol,
-          activo: form.activo, creadoEn: new Date().toISOString(),
-          puedeResetearPassword: false,
-        })
+        const fns = getFunctions()
+        const fn = httpsCallable(fns, 'crearUsuario')
+        await fn({ email: form.email, password: form.password, nombre: form.nombre, rol: form.rol, activo: form.activo })
       }
       await cargarUsuarios(); setModalOpen(false)
     } catch (e) {

@@ -16,7 +16,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { storage } from '../../../firebase/firestore'
 import { useEmpresa } from '../../../context/EmpresaContext'
 import { useAuth } from '../../../context/AuthContext'
-import { updatePassword, EmailAuthProvider, reauthenticateWithCredential, createUserWithEmailAndPassword, getAuth } from 'firebase/auth'
+import { updatePassword, EmailAuthProvider, reauthenticateWithCredential, getAuth } from 'firebase/auth'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -97,11 +97,16 @@ function Modal({ onClose, children, width=460 }) {
 function Catalogo({ coleccion, titulo, defaults }) {
   const [items,setItems] = useState([])
   const [nuevo,setNuevo] = useState('')
+  const [editId,setEditId] = useState(null)
+  const [editNombre,setEditNombre] = useState('')
   const [cargando,setCargando] = useState(true)
   const cargar = async () => { setCargando(true); const snap=await getDocs(query(collection(db,coleccion),orderBy('nombre'))); setItems(snap.docs.map(d=>({id:d.id,...d.data()}))); setCargando(false) }
   useEffect(()=>{ cargar() },[coleccion])
   const agregar = async () => { if(!nuevo.trim()||items.find(i=>i.nombre.toLowerCase()===nuevo.toLowerCase())) return; await addDoc(collection(db,coleccion),{nombre:nuevo.trim()}); setNuevo(''); cargar() }
-  const eliminar = async id => { await deleteDoc(doc(db,coleccion,id)); cargar() }
+  const eliminar = async id => { if(!confirm('¿Eliminar este elemento?')) return; await deleteDoc(doc(db,coleccion,id)); if(editId===id){ setEditId(null); setEditNombre('') } cargar() }
+  const iniciarEdicion = (item) => { setEditId(item.id); setEditNombre(item.nombre) }
+  const guardarEdicion = async () => { if(!editNombre.trim()||!editId) return; await updateDoc(doc(db,coleccion,editId),{nombre:editNombre.trim()}); setEditId(null); setEditNombre(''); cargar() }
+  const cancelarEdicion = () => { setEditId(null); setEditNombre('') }
   const cargarDef = async () => { const ex=items.map(i=>i.nombre.toLowerCase()); for(const d of(defaults||[])) { if(!ex.includes(d.toLowerCase())) await addDoc(collection(db,coleccion),{nombre:d}) } cargar() }
   return (
     <div style={{ marginBottom:28 }}>
@@ -111,13 +116,22 @@ function Catalogo({ coleccion, titulo, defaults }) {
         <Btn onClick={agregar}>+ Agregar</Btn>
         {items.length===0&&defaults?.length>0&&<Btn onClick={cargarDef} outline>↓ Predeterminados</Btn>}
       </div>
+      {editId&&(
+        <div style={{ display:'flex', gap:8, marginBottom:12, alignItems:'center', background:'#f0f8f0', padding:'8px 12px', borderRadius:8, border:'1px solid #d0d8d0' }}>
+          <span style={{ fontSize:11, color:'#5c6b5c', fontWeight:500 }}>Editando:</span>
+          <input value={editNombre} onChange={e=>setEditNombre(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')guardarEdicion();if(e.key==='Escape')cancelarEdicion()}} autoFocus style={{...iSt,flex:1}} />
+          <Btn onClick={guardarEdicion}>Guardar</Btn>
+          <Btn onClick={cancelarEdicion} outline>Cancelar</Btn>
+        </div>
+      )}
       {cargando?<div style={{color:'#aaa',fontSize:12}}>Cargando...</div>:(
         <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
           {items.length===0?<div style={{color:'#bbb',fontSize:12,fontStyle:'italic'}}>Sin elementos aún.</div>
             :items.map(item=>(
-              <div key={item.id} style={{ display:'flex', alignItems:'center', gap:6, background:'#fff', border:'1px solid #d0d8d0', borderRadius:20, padding:'4px 12px', fontSize:12 }}>
+              <div key={item.id} style={{ display:'flex', alignItems:'center', gap:6, background: editId===item.id?'#E6F1FB':'#fff', border: editId===item.id?'1px solid #185FA5':'1px solid #d0d8d0', borderRadius:20, padding:'4px 12px', fontSize:12 }}>
                 <span>{item.nombre}</span>
-                <button onClick={()=>eliminar(item.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#bbb', fontSize:14, padding:0, lineHeight:1 }}>×</button>
+                <button onClick={()=>iniciarEdicion(item)} title="Editar" style={{ background:'none', border:'none', cursor:'pointer', color:'#185FA5', fontSize:12, padding:0, lineHeight:1 }}>✎</button>
+                <button onClick={()=>eliminar(item.id)} title="Eliminar" style={{ background:'none', border:'none', cursor:'pointer', color:'#bbb', fontSize:14, padding:0, lineHeight:1 }}>×</button>
               </div>
             ))}
         </div>
@@ -402,7 +416,7 @@ function PaginaUsuarios() {
     setGuardando(true); setErrModal('')
     try {
       if(editando){ await updateDoc(doc(db,'usuarios',editando.id),{nombre:form.nombre,rol:form.rol,activo:form.activo}) }
-      else { const auth=getAuth(); const cred=await createUserWithEmailAndPassword(auth,form.email,form.password); await setDoc(doc(db,'usuarios',cred.user.uid),{nombre:form.nombre,email:form.email,rol:form.rol,activo:form.activo,creadoEn:new Date().toISOString()}) }
+      else { const fns=getFunctions(); const fn=httpsCallable(fns,'crearUsuario'); await fn({email:form.email,password:form.password,nombre:form.nombre,rol:form.rol,activo:form.activo}) }
       await cargar(); setModal(false)
     } catch(e){ setErrModal(e.code==='auth/email-already-in-use'?'Ese email ya está registrado.':'Error: '+e.message) }
     setGuardando(false)

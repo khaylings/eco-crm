@@ -191,6 +191,7 @@ export default function FichaLeadPage() {
   const [contactos, setContactos] = useState([])
   const [empresas, setEmpresas] = useState([])
   const [usuarios, setUsuarios] = useState([])
+  const [vendedores, setVendedores] = useState([])
   const [origenes, setOrigenes] = useState([])
   const [notas, setNotas] = useState([])
   const [timeline, setTimeline] = useState([])
@@ -252,8 +253,12 @@ export default function FichaLeadPage() {
       suscribirTimeline(id, setTimeline),
       suscribirAdjuntos(id, setAdjuntos),
     ]
-    Promise.all([obtenerColumnas(), obtenerContactos(), obtenerEmpresas(), obtenerUsuarios(), obtenerOrigenes()])
-      .then(([c, ct, em, us, or]) => { setColumnas(c); setContactos(ct); setEmpresas(em); setUsuarios(us); setOrigenes(or) })
+    Promise.all([obtenerColumnas(), obtenerContactos(), obtenerEmpresas(), obtenerUsuarios(), obtenerOrigenes(), getDocs(collection(db, 'empleados'))])
+      .then(([c, ct, em, us, or, empSnap]) => {
+        c.sort((a, b) => { if (a.fija && !b.fija) return 1; if (!a.fija && b.fija) return -1; return (a.orden ?? 0) - (b.orden ?? 0) })
+        setColumnas(c); setContactos(ct); setEmpresas(em); setUsuarios(us); setOrigenes(or)
+        setVendedores(empSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.activo !== false && e.asignableVentas && e.usuarioId))
+      })
     if (user?.uid) {
       getDoc(doc(db, 'usuarios', user.uid)).then(async uSnap => {
         const rolNombre = uSnap.exists() ? uSnap.data().rol : 'viewer'
@@ -498,12 +503,6 @@ export default function FichaLeadPage() {
         <button onClick={() => navigate('/crm')} style={S.odooBtn}>← Volver</button>
         <button onClick={crearCotizacion} style={{ ...S.odooBtn, color:'#185FA5', fontWeight:500 }}>+ Nueva cotización</button>
         <button onClick={abrirModalProyecto} style={{ ...S.odooBtn, color:'#3B6D11', fontWeight:500 }}>+ Nuevo proyecto</button>
-        {lead.estado !== 'ganado' && lead.estado !== 'perdido' && (
-          <button onClick={marcarGanado} style={{ ...S.odooBtn, color:'#065F46' }}>✓ Ganado</button>
-        )}
-        {puedePerdido && lead.estado !== 'ganado' && lead.estado !== 'perdido' && (
-          <button onClick={() => setModalPerdido(true)} style={{ ...S.odooBtn, color:'#991B1B' }}>✕ Perdido</button>
-        )}
         {puedeEliminar && (
           <button onClick={async () => {
             if (!window.confirm('¿Eliminar este lead?')) return
@@ -511,8 +510,6 @@ export default function FichaLeadPage() {
             await eliminarLead(id); navigate('/crm')
           }} style={{ ...S.odooBtn, color:'#991B1B' }}>🗑 Eliminar</button>
         )}
-        {lead.estado === 'ganado' && <span style={{ alignSelf:'center', padding:'2px 10px', background:'#D1FAE5', color:'#065F46', fontSize:11, fontWeight:500, marginLeft:6 }}>✓ Ganado</span>}
-        {lead.estado === 'perdido' && <span style={{ alignSelf:'center', padding:'2px 10px', background:'#FEE2E2', color:'#991B1B', fontSize:11, fontWeight:500, marginLeft:6 }}>✕ Perdido</span>}
         <div style={{ flex:1 }} />
         <span style={{ alignSelf:'center', fontSize:10, fontWeight:600, padding:'2px 8px', background: tipoLead==='empresa'?'#E6F1FB':'#EEEDFE', color: tipoLead==='empresa'?'#185FA5':'#534AB7', textTransform:'uppercase', letterSpacing:'.5px' }}>
           {tipoLead === 'empresa' ? '🏢 Empresa' : '👤 Persona'}
@@ -623,7 +620,7 @@ export default function FichaLeadPage() {
           {/* Negocio */}
           <Sec colorDot="#3B6D11" titulo="Negocio">
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 14px' }}>
-              <div><div style={{ fontSize:9, color:'#8a99b3', fontWeight:600, marginBottom:2 }}>Vendedor</div><div style={{ display:'flex', alignItems:'center', gap:5 }}><UserAvatar nombre={lead.vendedor} uid={lead.vendedorId} size={18} /><Campo label="" value={lead.vendedor} onSave={v => guardarCampo('vendedor',v)} /></div></div>
+              <div><div style={{ fontSize:9, color:'#8a99b3', fontWeight:600, marginBottom:2 }}>Vendedor</div><div style={{ display:'flex', alignItems:'center', gap:5 }}><UserAvatar nombre={lead.vendedor} uid={lead.vendedorId} size={18} /><select style={{ ...S.inpSm, borderBottom:'1px dashed #efefef', border:'none', padding:'2px 0', fontSize:11, flex:1 }} value={lead.vendedorId||''} onChange={e => { const emp = vendedores.find(v => v.usuarioId === e.target.value); guardarCampo('vendedorId', e.target.value); guardarCampo('vendedor', emp ? `${emp.nombre||''} ${emp.apellido||''}`.trim() : '') }}><option value="">— Seleccionar —</option>{vendedores.map(v => <option key={v.id} value={v.usuarioId}>{`${v.nombre||''} ${v.apellido||''}`.trim()}</option>)}</select></div></div>
               <Campo label="Origen" value={lead.origen} onSave={v => guardarCampo('origen',v)} />
               <Campo label="Valor estimado ($)" value={lead.valor} type="number" onSave={v => guardarCampo('valor',v)} />
               <div style={{ marginBottom:2 }}>

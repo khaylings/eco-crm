@@ -151,6 +151,7 @@ export default function CotizacionForm() {
   const [formProducto, setFormProducto] = useState({});
   const [leadsContacto, setLeadsContacto] = useState([]);
   const [showLeads, setShowLeads] = useState(false);
+  const [vendedores, setVendedores] = useState([]);
   const [aprobando, setAprobando] = useState(false);
   const [pasoAprobacion, setPasoAprobacion] = useState(0);
   const [opElegida, setOpElegida] = useState(null);
@@ -172,13 +173,14 @@ export default function CotizacionForm() {
 
   const cargarTodo = async () => {
     try {
-      const [cotSnap, contSnap, prodSnap, etSnap, pltSnap, listasSnap] = await Promise.all([
+      const [cotSnap, contSnap, prodSnap, etSnap, pltSnap, listasSnap, empSnap] = await Promise.all([
         getDoc(doc(db, "cotizaciones", id)),
         getDocs(query(collection(db, "contactos"), orderBy("nombre"))),
         getDocs(query(collection(db, "productos"), orderBy("nombre"))),
         getDocs(collection(db, "catalogo_etiquetas_producto")),
         getDoc(doc(db, "configuracion", "plantilla_cotizacion")),
         getDocs(collection(db, "listasPrecios")),
+        getDocs(collection(db, "empleados")),
       ]);
 
       if (cotSnap.exists()) {
@@ -189,6 +191,7 @@ export default function CotizacionForm() {
       setContactos(contSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setProductos(prodSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.esVenta !== false));
       setEtiquetas(etSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setVendedores(empSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.activo !== false && e.asignableVentas && e.usuarioId));
 
       // Lista de precios predeterminada
       const listasDocs = listasSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -581,7 +584,7 @@ export default function CotizacionForm() {
     miniInp:    { padding:"4px 6px", border:"0.5px solid rgba(0,0,0,.15)", borderRadius:5, fontSize:12, outline:"none", background:"#fff", color:"inherit", fontFamily:"inherit" },
     btn:        { padding:"6px 14px", border:"0.5px solid rgba(0,0,0,.15)", borderRadius:7, fontSize:12, cursor:"pointer", background:"#fff", fontFamily:"inherit" },
     btnPrimary: { padding:"7px 16px", background:"var(--eco-primary,#1a3a5c)", color:"#fff", border:"none", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer" },
-    grid4:      { display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 },
+    grid4:      { display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12 },
     divider:    { border:"none", borderTop:"0.5px solid rgba(0,0,0,.06)", margin:"14px 0" },
     th:         { padding:"9px 10px", textAlign:"left", fontWeight:600, fontSize:10, color:"#888", textTransform:"uppercase", letterSpacing:".4px", borderBottom:"1px solid #eef0f4", background:"#f8f9fb", whiteSpace:"nowrap" },
     td:         { padding:"10px 10px", borderBottom:"0.5px solid #f0f2f5", verticalAlign:"middle", fontSize:13, color:"#1a1a1a" },
@@ -946,6 +949,17 @@ export default function CotizacionForm() {
           </div>
         </div>
         <div style={s.grid4}>
+          <div>
+            <label style={s.lbl}>Vendedor</label>
+            <select style={s.inp} value={cot.vendedorId || ""} onChange={e => {
+              const emp = vendedores.find(v => v.usuarioId === e.target.value);
+              upd("vendedorId", e.target.value);
+              upd("vendedorNombre", emp ? `${emp.nombre || ""} ${emp.apellido || ""}`.trim() : "");
+            }}>
+              <option value="">— Seleccionar —</option>
+              {vendedores.map(v => <option key={v.id} value={v.usuarioId}>{`${v.nombre || ""} ${v.apellido || ""}`.trim()}</option>)}
+            </select>
+          </div>
           <div>
             <label style={s.lbl}>Moneda</label>
             <select style={s.inp} value={mon} onChange={e => cambiarMoneda(e.target.value)}>
