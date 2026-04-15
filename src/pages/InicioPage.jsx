@@ -286,7 +286,7 @@ export default function InicioPage() {
     const rango = rangoPeriodo(periodo, fechaDesde, fechaHasta)
     const verTodos  = esSuperior && vendedorFiltro === 'todos'
     const uidFiltro = esSuperior && vendedorFiltro !== 'todos' ? vendedorFiltro : uid
-    const run = (q) => q ? getDocs(q).catch(() => ({ size: 0, docs: [] })) : Promise.resolve({ size: 0, docs: [] })
+    const run = (q) => q ? getDocs(q).catch(e => { console.warn('Query falló (puede faltar índice):', e.message?.slice(0, 80)); return { size: 0, docs: [] } }) : Promise.resolve({ size: 0, docs: [] })
 
     try {
       const filtroVend = verTodos ? [] : [where('vendedorId', '==', uidFiltro)]
@@ -297,7 +297,7 @@ export default function InicioPage() {
         run(query(collection(db, 'leads'), ...filtroVend, where('estado', '==', 'ganado'), where('creadoEn', '>=', rango.ts.desde), where('creadoEn', '<=', rango.ts.hasta))),
         run(query(collection(db, 'leads'), ...filtroVend, where('estado', '==', 'perdido'), where('creadoEn', '>=', rango.ts.desde), where('creadoEn', '<=', rango.ts.hasta))),
         run(query(collection(db, 'cotizaciones'), ...filtroVend, where('estado', 'in', ['Enviada', 'Vista']))),
-        run(query(collection(db, 'conversaciones'), ...(verTodos ? [] : [where('agente', '==', uidFiltro)]), where('noLeidos', '>', 0))),
+        run(query(collection(db, 'conversaciones'), ...(verTodos ? [] : [where('agente', '==', uidFiltro)]))),
         run(query(collection(db, 'facturas'), ...filtroVend, where('estado', 'in', ['Sin Pagar', 'Parcial', 'Pendiente']))),
         run(query(collection(db, 'cotizaciones'), ...filtroVend, where('creadoEn', '>=', rango.ts.desde), where('creadoEn', '<=', rango.ts.hasta))),
         run(query(collection(db, 'facturas'), ...filtroVend, where('fechaEmision', '>=', rango.str.desde), where('fechaEmision', '<=', rango.str.hasta))),
@@ -429,7 +429,7 @@ export default function InicioPage() {
           ventasMes,
           ventasCount: cotsAceptadas.length,
           cotsPendientes: cotsPendSnap.size,
-          chatsSinResponder: chatsSnap.size,
+          chatsSinResponder: (chatsSnap.docs || []).filter(d => !d.data().archivada).length,
           facturadoSinIva,
           porCobrarCount: factPendSnap.size,
           porCobrarMonto,
@@ -487,8 +487,8 @@ export default function InicioPage() {
     { titulo: 'Leads ganados',      valor: m.leadsGanados,    sub: 'en el período',              color: '#3B6D11', acento: '#3B6D11', ruta: '/crm'      },
     { titulo: 'Leads perdidos',     valor: m.leadsPerdidos,   sub: 'en el período',              color: '#A32D2D', acento: '#A32D2D', ruta: '/crm'      },
     { titulo: 'Tasa de conversión', valor: loading ? '—' : `${m.tasaConversion || 0}%`, sub: 'ganados vs cerrados', color: '#534AB7', acento: '#534AB7', ruta: '/crm' },
-    { titulo: 'Ventas del período', valor: loading ? '—' : fmt(m.ventasMes),  sub: `${m.ventasCount || 0} cotizaciones aceptadas`, color: '#3B6D11', acento: '#3B6D11', ruta: '/ventas'   },
-    { titulo: 'Facturado (sin IVA)',valor: loading ? '—' : fmt(m.facturadoSinIva), sub: 'base imponible (USD)',      color: '#854F0B', acento: '#854F0B', ruta: '/facturas' },
+    { titulo: 'Chats abiertos',     valor: loading ? '—' : (m.chatsSinResponder || 0), sub: 'conversaciones WA activas', color: '#0F6E56', acento: '#0F6E56', ruta: '/chats' },
+    { titulo: 'Ventas del período', valor: loading ? '—' : fmt(m.facturadoSinIva), sub: 'base imponible (USD)',      color: '#854F0B', acento: '#854F0B', ruta: '/facturas' },
     { titulo: 'Comisión ganada',     valor: loading ? '—' : fmt(m.comisionUsuario || 0), sub: m.comisionCumplio ? '✓ Meta cumplida' : 'En progreso', color: m.comisionCumplio ? '#3B6D11' : '#854F0B', acento: m.comisionCumplio ? '#3B6D11' : '#854F0B', ruta: '/' },
     { titulo: 'Por cobrar',         valor: loading ? '—' : fmt(m.porCobrarMonto), sub: `${m.porCobrarCount || 0} facturas pendientes (USD)`, color: '#A32D2D', acento: '#A32D2D', ruta: '/finanzas?tab=cxc' },
   ]
