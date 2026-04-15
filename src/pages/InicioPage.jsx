@@ -390,26 +390,32 @@ export default function InicioPage() {
       })
       const topProductos = Object.entries(prodCount).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([nombre, cant]) => ({ nombre, cant }))
 
-      // Calcular comisión del usuario actual
+      // Calcular comisión del vendedor seleccionado (o del usuario actual)
       let comisionUsuario = 0, comisionCumplio = false
+      const uidComision = verTodos ? null : uidFiltro
       try {
-        const empSnap = await getDocs(query(collection(db, 'empleados'), where('usuarioId', '==', uid)))
-        if (!empSnap.empty) {
-          const emp = empSnap.docs[0].data()
-          if (emp.asignableVentas) {
-            const metaEmp = Number(emp.metaVentas || 0)
-            let vendidoUSD = 0
-            factPeriodoSnap.docs?.forEach(d => {
-              const f = d.data()
-              if (f.vendedorId === uid) {
+        if (uidComision) {
+          const empSnap = await getDocs(query(collection(db, 'empleados'), where('usuarioId', '==', uidComision)))
+          if (!empSnap.empty) {
+            const emp = empSnap.docs[0].data()
+            if (emp.asignableVentas) {
+              const metaEmp = Number(emp.metaVentas || 0)
+              let vendidoUSD = 0
+              // Traer facturas del mes para este vendedor (sin filtro de período del dashboard)
+              const mesActual = new Date()
+              const fechaDesdeMes = `${mesActual.getFullYear()}-${String(mesActual.getMonth() + 1).padStart(2, '0')}-01`
+              const fechaHastaMes = `${mesActual.getFullYear()}-${String(mesActual.getMonth() + 1).padStart(2, '0')}-31`
+              const factVendSnap = await getDocs(query(collection(db, 'facturas'), where('vendedorId', '==', uidComision), where('fechaEmision', '>=', fechaDesdeMes), where('fechaEmision', '<=', fechaHastaMes)))
+              factVendSnap.docs?.forEach(d => {
+                const f = d.data()
                 const base = baseSinIva(f)
                 vendidoUSD += f.moneda === 'CRC' ? base / Number(f.tasa || 519.5) : base
-              }
-            })
-            comisionCumplio = vendidoUSD >= metaEmp && metaEmp > 0
-            const comTipo = emp.comisionTipo || 'porcentaje'
-            const tasa = comisionCumplio ? Number(emp.comisionSiCumple || 0) : Number(emp.comisionNoCumple || 0)
-            comisionUsuario = comTipo === 'fijo' ? tasa : vendidoUSD * tasa / 100
+              })
+              comisionCumplio = vendidoUSD >= metaEmp && metaEmp > 0
+              const comTipo = emp.comisionTipo || 'porcentaje'
+              const tasa = comisionCumplio ? Number(emp.comisionSiCumple || 0) : Number(emp.comisionNoCumple || 0)
+              comisionUsuario = comTipo === 'fijo' ? tasa : vendidoUSD * tasa / 100
+            }
           }
         }
       } catch (e) { console.error('Error calculando comisión:', e) }

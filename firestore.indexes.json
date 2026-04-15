@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "facturas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "vendedorId", "order": "ASCENDING" },
+        { "fieldPath": "fechaEmision", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
