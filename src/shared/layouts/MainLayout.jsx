@@ -83,6 +83,9 @@ const NOTIF_CONFIG = {
   mensaje_interno:   { icono: '💬', color: '#185FA5', bg: '#E6F1FB', label: 'Mensaje interno' },
   solicitud_eliminacion: { icono: '🗑️', color: '#A32D2D', bg: '#FCEBEB', label: 'Solicitud eliminación' },
   eliminacion_factura:   { icono: '🗑️', color: '#A32D2D', bg: '#FCEBEB', label: 'Solicitud eliminación' },
+  solicitud_eliminacion_email: { icono: '🗑️', color: '#A32D2D', bg: '#FCEBEB', label: 'Eliminar correo' },
+  correo_devuelto:   { icono: '📧', color: '#A32D2D', bg: '#FCEBEB', label: 'Correo devuelto' },
+  alerta_whatsapp:   { icono: '📱', color: '#A32D2D', bg: '#FCEBEB', label: 'WhatsApp' },
   general:           { icono: '🔔', color: '#534AB7', bg: '#EEEDFE', label: 'Notificación' },
 }
 
@@ -263,6 +266,15 @@ function PanelNotificaciones({ notifs, onMarcarLeida, onEliminar, onMarcarTodasL
               <div onClick={() => {
                 const esEliminacion = n.tipo === 'solicitud_eliminacion' || n.tipo === 'eliminacion_factura' || n.meta?.accion === 'eliminar' || n.meta?.accion === 'eliminar_factura'
                 if (esEliminacion && onAbrirEliminacion) { onAbrirEliminacion(n); onCerrar(); return }
+                if (n.tipo === 'solicitud_eliminacion_email' && n.meta?.emailId) {
+                  if (confirm(`¿Eliminar el correo "${n.meta.asunto || 'Sin asunto'}"?\nSolicitado por: ${n.meta.solicitante || 'Usuario'}`)) {
+                    deleteDoc(doc(db, 'emails', n.meta.emailId)).then(() => {
+                      updateDoc(doc(db, 'notificaciones', n.id), { leida: true, procesada: true })
+                      addDoc(collection(db, 'notificaciones'), { destinatarioId: n.vendedorId || n.meta?.solicitanteId, tipo: 'general', titulo: '✅ Correo eliminado', cuerpo: `El correo "${n.meta.asunto}" fue eliminado.`, leida: false, creadoEn: serverTimestamp() }).catch(() => {})
+                    }).catch(() => alert('Error al eliminar'))
+                  }
+                  onCerrar(); return
+                }
                 if (n._esGrupo) { n._ids.forEach(id => onMarcarLeida(id)); } else { onMarcarLeida(n.id); } if (n.link) onNavegar(n.link); onCerrar()
               }}
                 style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: 1, cursor: n.link ? 'pointer' : 'default', minWidth: 0 }}

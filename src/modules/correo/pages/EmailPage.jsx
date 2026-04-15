@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState, useRef } from 'react'
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, getDoc, getDocs } from 'firebase/firestore'
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, getDoc, getDocs, deleteDoc, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../../firebase/config'
 import { useAuth } from '../../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -423,7 +423,10 @@ function DetalleEmail({ email, onResponder, onVerLead }) {
         </div>
         {email.adjuntos?.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-            {email.adjuntos.map((adj, i) => <span key={i} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#f0f4f8', color: '#555', border: '1px solid #e0e0e0' }}>📎 {adj.nombre}</span>)}
+            {email.adjuntos.map((adj, i) => adj.url
+              ? <a key={i} href={adj.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#EEF3FA', color: '#185FA5', border: '1px solid #d0dff0', textDecoration: 'none', fontWeight: 500 }}>📎 {adj.nombre}</a>
+              : <span key={i} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#f0f4f8', color: '#555', border: '1px solid #e0e0e0' }}>📎 {adj.nombre}</span>
+            )}
           </div>
         )}
       </div>
@@ -497,6 +500,31 @@ export default function EmailPage() {
   const [todosUsuarios,      setTodosUsuarios]      = useState([])
 
   const esAdmin = usuario?.rol === 'Super Administrador' || usuario?.rol === 'Administrador'
+  const esSuperAdmin = usuario?.rol === 'Super Administrador'
+
+  async function eliminarCorreo(email) {
+    if (esSuperAdmin) {
+      if (!confirm(`¿Eliminar el correo "${email.asunto || 'Sin asunto'}"? Esta acción no se puede deshacer.`)) return
+      await deleteDoc(doc(db, 'emails', email.id))
+      setEmailActivo(null)
+    } else {
+      // Solicitar eliminación al Super Admin
+      const admins = todosUsuarios.filter(u => u.rol === 'Super Administrador')
+      for (const admin of admins) {
+        await addDoc(collection(db, 'notificaciones'), {
+          destinatarioId: admin.uid,
+          tipo: 'solicitud_eliminacion_email',
+          titulo: '🗑 Solicitud eliminar correo',
+          cuerpo: `${usuario?.nombre || 'Un usuario'} solicita eliminar el correo "${email.asunto || 'Sin asunto'}" de ${email.de || email.deEmail || '—'}`,
+          meta: { emailId: email.id, asunto: email.asunto, solicitante: usuario?.nombre || usuario?.email },
+          leida: false,
+          procesada: false,
+          creadoEn: serverTimestamp(),
+        })
+      }
+      alert('Solicitud enviada al Super Administrador')
+    }
+  }
 
   // Cargar firma del usuario
   useEffect(() => {
@@ -784,19 +812,42 @@ export default function EmailPage() {
           <div style={{ padding: '12px 14px' }}>
             {emailActivo.leadId && <button onClick={() => navigate(`/crm/lead/${emailActivo.leadId}`)} style={{ width: '100%', padding: '8px', marginBottom: 8, background: '#185FA5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>👤 Ver lead vinculado</button>}
             {emailActivo.contactoId && <button onClick={() => navigate(`/contactos/${emailActivo.contactoId}`)} style={{ width: '100%', padding: '8px', marginBottom: 8, background: 'transparent', color: '#555', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>👤 Ver contacto</button>}
-            {emailActivo.direccion === 'entrada' && <button onClick={() => responder(emailActivo)} style={{ width: '100%', padding: '8px', background: 'transparent', color: '#185FA5', border: '1px solid #185FA5', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>↩ Responder</button>}
+            {emailActivo.direccion === 'entrada' && <button onClick={() => responder(emailActivo)} style={{ width: '100%', padding: '8px', marginBottom: 8, background: 'transparent', color: '#185FA5', border: '1px solid #185FA5', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>↩ Responder</button>}
+            <button onClick={async () => { await updateDoc(doc(db, 'emails', emailActivo.id), { estado: emailActivo.estado === 'no_leido' ? 'leido' : 'no_leido' }); setEmailActivo(prev => ({ ...prev, estado: prev.estado === 'no_leido' ? 'leido' : 'no_leido' })) }} style={{ width: '100%', padding: '8px', marginBottom: 8, background: 'transparent', color: '#555', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#f5f7fa' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+              {emailActivo.estado === 'no_leido' ? '✓ Marcar como leído' : '🔵 Marcar como no leído'}
+            </button>
+            <button onClick={() => eliminarCorreo(emailActivo)} style={{ width: '100%', padding: '8px', background: 'transparent', color: '#A32D2D', border: '1px solid #f09595', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#FCEBEB' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+              🗑 {esSuperAdmin ? 'Eliminar correo' : 'Solicitar eliminación'}
+            </button>
           </div>
           {emailActivo.adjuntos?.length > 0 && (
             <div style={{ padding: '0 14px 14px' }}>
               <div style={{ fontSize: 10, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 700, marginBottom: 8 }}>Adjuntos</div>
               {emailActivo.adjuntos.map((adj, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#f8f9fc', borderRadius: 8, marginBottom: 5, border: '1px solid #e8ecf0' }}>
-                  <span>📎</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{adj.nombre}</div>
-                    {adj.tamaño > 0 && <div style={{ fontSize: 10, color: '#aaa' }}>{Math.round(adj.tamaño / 1024)} KB</div>}
+                adj.url ? (
+                  <a key={i} href={adj.url} target="_blank" rel="noreferrer" download={adj.nombre} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#f8f9fc', borderRadius: 8, marginBottom: 5, border: '1px solid #e8ecf0', textDecoration: 'none', cursor: 'pointer' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#EEF3FA'; e.currentTarget.style.borderColor = '#185FA5' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = '#f8f9fc'; e.currentTarget.style.borderColor = '#e8ecf0' }}>
+                    <span>📎</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#185FA5', fontWeight: 500 }}>{adj.nombre}</div>
+                      {adj.tamaño > 0 && <div style={{ fontSize: 10, color: '#aaa' }}>{Math.round(adj.tamaño / 1024)} KB</div>}
+                    </div>
+                    <span style={{ fontSize: 11, color: '#185FA5', flexShrink: 0 }}>⬇</span>
+                  </a>
+                ) : (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#f8f9fc', borderRadius: 8, marginBottom: 5, border: '1px solid #e8ecf0' }}>
+                    <span>📎</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{adj.nombre}</div>
+                      {adj.tamaño > 0 && <div style={{ fontSize: 10, color: '#aaa' }}>{Math.round(adj.tamaño / 1024)} KB</div>}
+                    </div>
                   </div>
-                </div>
+                )
               ))}
             </div>
           )}

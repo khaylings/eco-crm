@@ -11,7 +11,7 @@ const { getStorage }   = require('firebase-admin/storage')
 const nodemailer           = require('nodemailer')
 const crypto               = require('crypto')
 const { simpleParser }     = require('mailparser')
-const fetch                = require('node-fetch')
+const nodeFetch            = require('node-fetch')
 
 setGlobalOptions({
   cors: true,
@@ -104,11 +104,25 @@ async function leerCuentaImap({ host, port, user, password, email, db }) {
                     if (!lSnap.empty) leadId = lSnap.docs[0].id
                   }
 
-                  const adjuntos = (parsed.attachments || []).map(a => ({
-                    nombre: a.filename || 'adjunto',
-                    tipo:   a.contentType || 'application/octet-stream',
-                    tamaño: a.size || 0,
-                  }))
+                  const adjuntos = []
+                  for (const a of (parsed.attachments || [])) {
+                    const adj = {
+                      nombre: a.filename || 'adjunto',
+                      tipo:   a.contentType || 'application/octet-stream',
+                      tamaño: a.size || 0,
+                    }
+                    try {
+                      if (a.content && a.content.length > 0) {
+                        const bucket = getStorage().bucket()
+                        const filePath = `email_adjuntos/${Date.now()}_${adj.nombre.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+                        const file = bucket.file(filePath)
+                        await file.save(a.content, { metadata: { contentType: adj.tipo } })
+                        await file.makePublic()
+                        adj.url = `https://storage.googleapis.com/${bucket.name}/${filePath}`
+                      }
+                    } catch (e) { console.error('Error subiendo adjunto:', e.message) }
+                    adjuntos.push(adj)
+                  }
 
                   // Detectar bounce/correo devuelto
                   const esBounce = /mailer-daemon|mail.delivery|postmaster|undeliverable|failure.notice|returned.mail/i.test(deEmail + de + asunto)
@@ -380,7 +394,7 @@ exports.probarSmtp = onCall(async (request) => {
 })
 
 // ─── Enviar email ─────────────────────────────────────────────────────────────
-exports.enviarEmail = onCall(async (request) => {
+exports.enviarEmail = onCall({ timeoutSeconds: 120, memory: '512MiB' }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.')
   const db        = getFirestore()
   const callerDoc = await db.collection('usuarios').doc(request.auth.uid).get()
@@ -394,19 +408,19 @@ exports.enviarEmail = onCall(async (request) => {
   const password    = desencriptar(c.smtpPasswordEnc)
   const transporter = nodemailer.createTransport({ host: c.smtpHost, port: c.smtpPuerto, secure: c.smtpPuerto === 465, auth: { user: c.smtpUsuario, pass: password }, tls: { rejectUnauthorized: false } })
   try {
+    const caller = callerDoc.data()
     const nombreRemitente = caller?.nombre || c.nombre
     const adjuntosEmail = []
     if (adjuntos?.length) {
       for (const adj of adjuntos) {
         try {
-          const res = await fetch(adj.url)
+          const res = await nodeFetch(adj.url)
           const buffer = await res.buffer()
           adjuntosEmail.push({ filename: adj.nombre, content: buffer, contentType: adj.tipo || 'application/octet-stream' })
         } catch (e) { console.error('Error descargando adjunto:', e.message) }
       }
     }
     const info = await transporter.sendMail({ from: `"${nombreRemitente}" <${c.email}>`, to: para, subject: asunto, text: cuerpoTexto || '', html: cuerpoHtml || '', ...(adjuntosEmail.length ? { attachments: adjuntosEmail } : {}) })
-    const caller = callerDoc.data()
     await db.collection('emails').add({ de: c.email, deCuenta: c.nombre, para, asunto, cuerpoTexto: cuerpoTexto || '', cuerpoHtml: cuerpoHtml || '', fecha: new Date(), direccion: 'salida', estado: 'enviado', messageId: info.messageId, cotizacionId: cotizacionId || null, leadId: leadId || null, contactoId: contactoId || null, enviadoPor: request.auth.uid, enviadoPorNombre: caller?.nombre || '', creadoEn: new Date() })
     return { success: true, messageId: info.messageId }
   } catch (err) {
@@ -1059,11 +1073,25 @@ async function importarHistoricosCuenta({ host, port, user, password, email, db,
                     }
                   }
 
-                  const adjuntos = (parsed.attachments || []).map(a => ({
-                    nombre: a.filename || 'adjunto',
-                    tipo:   a.contentType || 'application/octet-stream',
-                    tamaño: a.size || 0,
-                  }))
+                  const adjuntos = []
+                  for (const a of (parsed.attachments || [])) {
+                    const adj = {
+                      nombre: a.filename || 'adjunto',
+                      tipo:   a.contentType || 'application/octet-stream',
+                      tamaño: a.size || 0,
+                    }
+                    try {
+                      if (a.content && a.content.length > 0) {
+                        const bucket = getStorage().bucket()
+                        const filePath = `email_adjuntos/${Date.now()}_${adj.nombre.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+                        const file = bucket.file(filePath)
+                        await file.save(a.content, { metadata: { contentType: adj.tipo } })
+                        await file.makePublic()
+                        adj.url = `https://storage.googleapis.com/${bucket.name}/${filePath}`
+                      }
+                    } catch (e) { console.error('Error subiendo adjunto:', e.message) }
+                    adjuntos.push(adj)
+                  }
 
                   await db.collection('emails').add({
                     de, deEmail, para, asunto,
