@@ -67,7 +67,7 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
         .filter(e => e.activo !== false && e.asignableVentas)
 
       const metaSnap = await getDoc(doc(db, 'metas', docId))
-      const metasData = metaSnap.exists() ? (metaSnap.data().vendedores || {}) : {}
+      const metasMes = metaSnap.exists() ? (metaSnap.data().vendedores || {}) : {}
 
       const fechaDesde = `${anio}-${String(mes+1).padStart(2,'0')}-01`
       const fechaHasta = `${anio}-${String(mes+1).padStart(2,'0')}-31`
@@ -86,21 +86,25 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
         if (!vid) return
         // Buscar empleado por usuarioId vinculado
         const emp = vendedores.find(e => e.usuarioId === vid)
-        if (emp) ventasPorEmpleado[emp.id] = (ventasPorEmpleado[emp.id] || 0) + baseSinIva(f)
+        if (emp) {
+          const base = baseSinIva(f)
+          const enUSD = f.moneda === 'CRC' ? base / Number(f.tasa || 519.5) : base
+          ventasPorEmpleado[emp.id] = (ventasPorEmpleado[emp.id] || 0) + enUSD
+        }
       })
 
       let sumaEquipo = 0, sumaMetaEquipo = 0
 
       const lista = vendedores.map((v, idx) => {
-        const meta = metasData[v.id] || {}
-        const metaNum = Number(meta.meta || 0)
+        const metaMes = metasMes[v.id] || {}
+        const metaNum = Number(metaMes.meta || v.metaVentas || 0)
         const vendido = ventasPorEmpleado[v.id] || 0
         const pct = metaNum > 0 ? Math.min((vendido / metaNum) * 100, 100) : 0
         const cumplio = vendido >= metaNum && metaNum > 0
 
         let comision = 0
-        const tasa = cumplio ? Number(meta.comisionSiCumple || 0) : Number(meta.comisionNoCumple || 0)
-        if (meta.comisionTipo === 'fijo') comision = tasa
+        const tasa = cumplio ? Number(metaMes.comisionSiCumple || 0) : Number(metaMes.comisionNoCumple || 0)
+        if (metaMes.comisionTipo === 'fijo') comision = tasa
         else comision = vendido * tasa / 100
 
         sumaEquipo     += vendido
