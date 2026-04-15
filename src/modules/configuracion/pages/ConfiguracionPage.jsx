@@ -2074,12 +2074,12 @@ function PaginaEmpleados() {
   }, [])
 
   const abrirNuevo = () => {
-    setForm({ nombre: '', apellido: '', telefono: '', cedula: '', cargoId: '', cargoNombre: '', usuarioId: '', fechaIngreso: '', activo: true, asignableOperaciones: false, asignableVentas: false })
+    setForm({ nombre: '', apellido: '', telefono: '', cedula: '', cargoId: '', cargoNombre: '', usuarioId: '', fechaIngreso: '', activo: true, asignableOperaciones: false, asignableVentas: false, metaVentas: '' })
     setModal('nuevo')
   }
 
   const abrirEditar = (emp) => {
-    setForm({ nombre: emp.nombre || '', apellido: emp.apellido || '', telefono: emp.telefono || '', cedula: emp.cedula || '', cargoId: emp.cargoId || '', cargoNombre: emp.cargoNombre || '', usuarioId: emp.usuarioId || '', fechaIngreso: emp.fechaIngreso || '', activo: emp.activo !== false, asignableOperaciones: emp.asignableOperaciones || false, asignableVentas: emp.asignableVentas || false })
+    setForm({ nombre: emp.nombre || '', apellido: emp.apellido || '', telefono: emp.telefono || '', cedula: emp.cedula || '', cargoId: emp.cargoId || '', cargoNombre: emp.cargoNombre || '', usuarioId: emp.usuarioId || '', fechaIngreso: emp.fechaIngreso || '', activo: emp.activo !== false, asignableOperaciones: emp.asignableOperaciones || false, asignableVentas: emp.asignableVentas || false, metaVentas: emp.metaVentas || '' })
     setModal(emp)
   }
 
@@ -2088,7 +2088,7 @@ function PaginaEmpleados() {
     setGuardando(true)
     try {
       const cargo = cargos.find(c => c.id === form.cargoId)
-      const data = { ...form, cargoNombre: cargo?.nombre || '', actualizadoEn: serverTimestamp() }
+      const data = { ...form, cargoNombre: cargo?.nombre || '', metaVentas: form.metaVentas ? Number(form.metaVentas) : 0, actualizadoEn: serverTimestamp() }
       if (modal === 'nuevo') {
         await addDoc(collection(db, 'empleados'), { ...data, creadoEn: serverTimestamp() })
       } else {
@@ -2247,6 +2247,12 @@ function PaginaEmpleados() {
                   <input type="checkbox" checked={form.asignableVentas} onChange={e => setForm({ ...form, asignableVentas: e.target.checked })} style={{ accentColor: '#185FA5', width: 14, height: 14 }} />
                   Asignable a ventas
                 </label>
+                {form.asignableVentas && (
+                  <div style={{ marginTop: 8, paddingLeft: 20 }}>
+                    <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }}>Meta de ventas mensual (USD)</label>
+                    <input type="number" value={form.metaVentas} onChange={e => setForm({ ...form, metaVentas: e.target.value })} placeholder="Ej: 5000" style={sty.inp} />
+                  </div>
+                )}
               </div>
             </div>
             <div style={{ padding: '14px 20px', borderTop: '1px solid #f0f2f5', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
