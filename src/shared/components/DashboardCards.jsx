@@ -30,7 +30,7 @@ const loadSecciones = () => {
   return SECCIONES_DEFAULT
 }
 
-const fmt2 = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+import { fmt as fmt2, fmt as fmtMon, fmtCorto, toUSD } from '../../lib/formatMoneda'
 
 const tiempoRelativo = (ts) => {
   if (!ts) return ''
@@ -156,7 +156,7 @@ export default function DashboardCards({ datos, actividad, pipeline, metricas, l
                 const vencido = f.dias < 0
                 return [
                   <span>{f.clienteNombre || '—'}</span>,
-                  <span style={{ fontWeight: 500, color: '#A32D2D' }}>${Number(f.montoUSD).toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>,
+                  <span style={{ fontWeight: 500, color: '#A32D2D' }}>{fmtCorto(f.saldo || f.total, f.moneda)}</span>,
                   <span style={{ fontWeight: 600, color: vencido ? '#A32D2D' : f.dias <= 7 ? '#854F0B' : '#3B6D11' }}>{vencido ? `${f.dias}d` : `+${f.dias}d`}</span>,
                 ]
               })}

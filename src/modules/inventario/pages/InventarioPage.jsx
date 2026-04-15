@@ -41,8 +41,8 @@ const FS = {
   },
 };
 
-const fmt = (n) =>
-  `₡${Number(n || 0).toLocaleString("es-CR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+import { fmt as fmtMoneda } from '../../../lib/formatMoneda'
+const fmt = (n, mon) => fmtMoneda(n, mon || 'CRC');
 
 const calcCostoDesagregado = (componentes, productos) =>
   componentes.reduce((sum, c) => {

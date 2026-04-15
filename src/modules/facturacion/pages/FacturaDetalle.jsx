@@ -19,11 +19,9 @@ import { signInWithEmailAndPassword, getAuth } from 'firebase/auth'
 import { registrarPagoPendiente, solicitarEliminacionFactura } from '../../../services/notificaciones'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const sym  = (mon) => mon === 'USD' ? '$' : '₡'
-const fmtN = (n, mon = 'USD') =>
-  mon === 'USD'
-    ? Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+import { fmt as fmtMoneda, simbolo } from '../../../lib/formatMoneda'
+const sym  = (mon) => simbolo(mon)
+const fmtN = (n, mon = 'USD') => fmtMoneda(n, mon).replace(/^[$₡]/, '')
 
 const fmtFecha = (iso) => {
   if (!iso) return '—'

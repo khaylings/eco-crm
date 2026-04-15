@@ -18,10 +18,8 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 import { usePermisos } from '../../../hooks/usePermisos'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const fmt = (n, mon = 'USD') =>
-  mon === 'USD'
-    ? '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
+import { fmt as fmtMoneda } from '../../../lib/formatMoneda'
+const fmt = (n, mon = 'USD') => fmtMoneda(n, mon)
 
 const fmtFecha = (iso) => {
   if (!iso) return '—'

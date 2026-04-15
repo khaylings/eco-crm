@@ -29,10 +29,8 @@ const estadoColor = {
   Rechazada: { bg: "#FCEBEB", color: "#A32D2D" },
 };
 
-const fmt = (n, mon) =>
-  mon === "USD"
-    ? "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : "₡" + Number(n || 0).toLocaleString("es-CR");
+import { fmt as fmtMoneda } from '../../../lib/formatMoneda'
+const fmt = (n, mon) => fmtMoneda(n, mon);
 
 const tiempoRelativo = (ts) => {
   if (!ts) return "—";

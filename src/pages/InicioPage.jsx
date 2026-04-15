@@ -80,8 +80,7 @@ const rangoPeriodo = (periodo, desde, hasta) => {
   }
 }
 
-const fmt  = (n) => '$' + Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })
-const fmt2 = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+import { fmtCorto as fmt, fmt as fmt2, toUSD } from '../lib/formatMoneda'
 
 const baseSinIva = (f) => {
   const base = Number(f.base || 0)

@@ -13,8 +13,9 @@ import { useParams } from "react-router-dom";
 import { doc, getDoc, updateDoc, deleteField, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase/config";
 
-const fmtN = (n) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const sym = (mon) => mon === "USD" ? "$" : "₡";
+import { fmt as fmtMoneda, simbolo } from '../lib/formatMoneda'
+const fmtN = (n, mon) => fmtMoneda(n, mon).replace(/^[$₡]/, '');
+const sym = (mon) => simbolo(mon);
 
 const calcLinea = (p) => {
   const precio = Number(p.precio || 0);

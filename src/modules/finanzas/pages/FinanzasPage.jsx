@@ -36,30 +36,30 @@ import ResizableTable from '../../../shared/components/ResizableTable'
 import UserAvatar from '../../../shared/components/UserAvatar'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const fmtUSD = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const fmtCRC = (n) => '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
-const fmt    = (n, mon = 'USD') => mon === 'USD' ? fmtUSD(n) : fmtCRC(n)
+import { fmt as fmtMoneda, toUSD as toUSDBase } from '../../../lib/formatMoneda'
+const fmtUSD = (n) => fmtMoneda(n, 'USD')
+const fmtCRC = (n) => fmtMoneda(n, 'CRC')
+const fmt    = (n, mon = 'USD') => fmtMoneda(n, mon)
 
-// CxC (me deben CRC) → dividir por tasa venta (más alta)
-// CxP (yo debo CRC) → dividir por tasa compra (más baja)
-// tc puede ser número (legacy) u objeto { venta, compra }
+// CxC: usa tasa del documento (f.tasa). Si no tiene, usa tasa venta del sistema
+// CxP: usa tasa del documento (o.tasa). Si no tiene, usa tasa compra del sistema
 const toUSD = (monto, moneda, tc) => {
   if (!monto) return 0
   if (moneda === 'USD') return Number(monto)
-  const tasa = typeof tc === 'object' ? (tc?.venta || tc?.compra || 520) : (tc || 520)
-  return Number(monto) / tasa
+  const tasa = typeof tc === 'number' ? tc : (tc?.venta || tc?.compra || 0)
+  return tasa > 0 ? Number(monto) / tasa : Number(monto)
 }
 const toUSD_cobrar = (monto, moneda, tc) => {
   if (!monto) return 0
   if (moneda === 'USD') return Number(monto)
-  const tasa = typeof tc === 'object' ? (tc?.venta || 520) : (tc || 520)
-  return Number(monto) / tasa
+  const tasa = typeof tc === 'number' ? tc : (tc?.venta || 0)
+  return tasa > 0 ? Number(monto) / tasa : Number(monto)
 }
 const toUSD_pagar = (monto, moneda, tc) => {
   if (!monto) return 0
   if (moneda === 'USD') return Number(monto)
-  const tasa = typeof tc === 'object' ? (tc?.compra || 520) : (tc || 520)
-  return Number(monto) / tasa
+  const tasa = typeof tc === 'number' ? tc : (tc?.compra || 0)
+  return tasa > 0 ? Number(monto) / tasa : Number(monto)
 }
 
 const fmtFecha = (iso) => {

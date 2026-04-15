@@ -19,7 +19,8 @@ const EST_COT = [
   { valor: 'rechazada', label: 'Rechazada', color: '#b71c1c', bg: '#ffebee' },
 ]
 function getEstado(arr, v) { return arr.find(e => e.valor === v) || arr[0] }
-function fmt$(v) { return '$' + parseFloat(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+import { fmt as _fmt } from '../../../lib/formatMoneda'
+function fmt$(v, mon = 'USD') { return _fmt(v, mon) }
 
 export default function ProyectoDetalle() {
   const { id } = useParams()

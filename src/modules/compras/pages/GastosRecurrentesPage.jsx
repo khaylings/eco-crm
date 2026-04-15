@@ -17,10 +17,8 @@ import { db } from '../../../firebase/config'
 import { useNavigate } from 'react-router-dom'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const fmt = (n, mon = 'CRC') =>
-  mon === 'USD'
-    ? '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
+import { fmt as fmtMoneda } from '../../../lib/formatMoneda'
+const fmt = (n, mon = 'CRC') => fmtMoneda(n, mon)
 
 const FRECUENCIAS = [
   { val: 'mensual',   label: 'Mensual',   desc: 'Se repite cada mes' },

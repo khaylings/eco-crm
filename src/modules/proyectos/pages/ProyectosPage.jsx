@@ -13,9 +13,10 @@ const ESTADOS = [
   { valor: 'terminado', label: 'Terminado', color: '#4a148c', bg: '#f3e5f5' },
 ]
 function getEstado(v) { return ESTADOS.find(e => e.valor === v) || ESTADOS[0] }
-function fmtMoneda(v) {
+import { fmt as _fmtMon } from '../../../lib/formatMoneda'
+function fmtMoneda(v, mon = 'USD') {
   if (!v && v !== 0) return '—'
-  return '$' + parseFloat(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return _fmtMon(v, mon)
 }
 function autoNum(lista, prefijo) {
   return `${prefijo}-${String((lista.length || 0) + 1).padStart(3, '0')}`

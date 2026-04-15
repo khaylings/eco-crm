@@ -16,13 +16,10 @@ import { usePermisos } from '../../../hooks/usePermisos'
 import ResizableTable from '../../../shared/components/ResizableTable'
 import UserAvatar from '../../../shared/components/UserAvatar'
 
-const fmtUSD = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const fmtCRC = (n) => '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
-const toUSD_cobrar = (monto, moneda, tc) => {
-  if (!monto) return 0
-  if (moneda === 'USD') return Number(monto)
-  return Number(monto) / (tc?.venta || tc || 520)
-}
+import { fmt as fmtMoneda, fmtCorto, toUSD as toUSDHelper } from '../../../lib/formatMoneda'
+const fmtUSD = (n) => fmtMoneda(n, 'USD')
+const fmtCRC = (n) => fmtMoneda(n, 'CRC')
+const toUSD_cobrar = (monto, moneda, tc) => toUSDHelper(monto, moneda, tc?.venta || tc)
 
 const ESTADO_CONFIG = {
   'Sin Pagar':  { bg: '#FCEBEB', color: '#A32D2D', dot: '#E24B4A' },
@@ -33,10 +30,7 @@ const ESTADO_CONFIG = {
 
 const ESTADOS_FILTRO = ['Todos', 'Sin Pagar', 'Parcial', 'Pagada', 'Incobrable']
 
-const fmt = (n, mon = 'USD') =>
-  mon === 'USD'
-    ? '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '₡' + Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 0 })
+const fmt = (n, mon = 'USD') => fmtMoneda(n, mon)
 
 const fmtFecha = (iso) => {
   if (!iso) return '—'

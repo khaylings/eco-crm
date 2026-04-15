@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react'
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
+import { fmtCorto } from '../../lib/formatMoneda'
 
 const ROLES_SUPERIORES = ['Administrador', 'Supervisor', 'admin', 'supervisor']
 
@@ -126,7 +127,7 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
     }
   }
 
-  const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })
+  const fmt = (n) => fmtCorto(n, 'USD') // Pista siempre en USD (ya convertido)
   const pctEquipo = metaEquipo > 0 ? Math.min(Math.round((totalEquipo / metaEquipo) * 100), 100) : 0
   const esPropio = (c) => c.id === usuario?.uid
 

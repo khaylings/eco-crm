@@ -30,8 +30,9 @@ function SortableRow({ id, children }) {
   );
 }
 
-const sym = (mon) => mon === "USD" ? "$" : "₡";
-const fmtN = (n) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { fmt as fmtMoneda, simbolo } from '../../../lib/formatMoneda'
+const sym = (mon) => simbolo(mon);
+const fmtN = (n, mon) => fmtMoneda(n, mon).replace(/^[$₡]/, '');
 
 const IVA_OPCIONES = [
   { label: "13%", value: 13 },

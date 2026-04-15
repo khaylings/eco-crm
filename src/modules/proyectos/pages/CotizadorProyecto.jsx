@@ -8,7 +8,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 
 const PCT_DEFAULTS = { pctAdmin: 10, pctIngenieria: 5, pctSupervision: 5, pctImprevistos: 3, pctUtilidad: 15, pctIVA: 13 }
 
-function fmt$(v) { return '$' + parseFloat(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+import { fmt as _fmt } from '../../../lib/formatMoneda'
+function fmt$(v, mon = 'USD') { return _fmt(v, mon) }
 function fmt2(v) { return parseFloat(v || 0).toFixed(2) }
 
 export default function CotizadorProyecto() {
