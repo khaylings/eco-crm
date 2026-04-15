@@ -390,6 +390,30 @@ export default function InicioPage() {
       })
       const topProductos = Object.entries(prodCount).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([nombre, cant]) => ({ nombre, cant }))
 
+      // Calcular comisión del usuario actual
+      let comisionUsuario = 0, comisionCumplio = false
+      try {
+        const empSnap = await getDocs(query(collection(db, 'empleados'), where('usuarioId', '==', uid)))
+        if (!empSnap.empty) {
+          const emp = empSnap.docs[0].data()
+          if (emp.asignableVentas) {
+            const metaEmp = Number(emp.metaVentas || 0)
+            let vendidoUSD = 0
+            factPeriodoSnap.docs?.forEach(d => {
+              const f = d.data()
+              if (f.vendedorId === uid) {
+                const base = baseSinIva(f)
+                vendidoUSD += f.moneda === 'CRC' ? base / Number(f.tasa || 519.5) : base
+              }
+            })
+            comisionCumplio = vendidoUSD >= metaEmp && metaEmp > 0
+            const comTipo = emp.comisionTipo || 'porcentaje'
+            const tasa = comisionCumplio ? Number(emp.comisionSiCumple || 0) : Number(emp.comisionNoCumple || 0)
+            comisionUsuario = comTipo === 'fijo' ? tasa : vendidoUSD * tasa / 100
+          }
+        }
+      } catch (e) { console.error('Error calculando comisión:', e) }
+
       setDatos({
         metricas: {
           leadsActivos: leadsActSnap.size,
@@ -403,6 +427,8 @@ export default function InicioPage() {
           facturadoSinIva,
           porCobrarCount: factPendSnap.size,
           porCobrarMonto,
+          comisionUsuario,
+          comisionCumplio,
         },
         topCots, topFacturas, masVistas, porCobrar, porVencer, leadsRec, topProductos, topDeudores,
       })
@@ -457,7 +483,7 @@ export default function InicioPage() {
     { titulo: 'Tasa de conversión', valor: loading ? '—' : `${m.tasaConversion || 0}%`, sub: 'ganados vs cerrados', color: '#534AB7', acento: '#534AB7', ruta: '/crm' },
     { titulo: 'Ventas del período', valor: loading ? '—' : fmt(m.ventasMes),  sub: `${m.ventasCount || 0} cotizaciones aceptadas`, color: '#3B6D11', acento: '#3B6D11', ruta: '/ventas'   },
     { titulo: 'Facturado (sin IVA)',valor: loading ? '—' : fmt(m.facturadoSinIva), sub: 'base imponible (USD)',      color: '#854F0B', acento: '#854F0B', ruta: '/facturas' },
-    { titulo: 'Cots. pendientes',   valor: m.cotsPendientes,  sub: 'sin respuesta del cliente',  color: '#854F0B', acento: '#854F0B', ruta: '/ventas'   },
+    { titulo: 'Comisión ganada',     valor: loading ? '—' : fmt(m.comisionUsuario || 0), sub: m.comisionCumplio ? '✓ Meta cumplida' : 'En progreso', color: m.comisionCumplio ? '#3B6D11' : '#854F0B', acento: m.comisionCumplio ? '#3B6D11' : '#854F0B', ruta: '/' },
     { titulo: 'Por cobrar',         valor: loading ? '—' : fmt(m.porCobrarMonto), sub: `${m.porCobrarCount || 0} facturas pendientes (USD)`, color: '#A32D2D', acento: '#A32D2D', ruta: '/finanzas?tab=cxc' },
   ]
 
@@ -571,7 +597,7 @@ export default function InicioPage() {
         />
 
         {/* ── TARJETAS ARRASTRABLES ── */}
-        <DashboardCards datos={datos} actividad={actividad} pipeline={pipeline} metricas={m} loading={loading} navigate={navigate} />
+        <DashboardCards datos={datos} actividad={actividad} pipeline={pipeline} metricas={m} loading={loading} navigate={navigate} usuario={usuario} />
 
         {/* LEGACY — oculto, reemplazado por DashboardCards */}
         <div style={{ display: 'none' }}>

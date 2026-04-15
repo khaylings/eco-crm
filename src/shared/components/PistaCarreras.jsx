@@ -103,8 +103,9 @@ export default function PistaCarreras({ mes: mesProp, anio: anioProp }) {
         const cumplio = vendido >= metaNum && metaNum > 0
 
         let comision = 0
-        const tasa = cumplio ? Number(metaMes.comisionSiCumple || 0) : Number(metaMes.comisionNoCumple || 0)
-        if (metaMes.comisionTipo === 'fijo') comision = tasa
+        const comTipo = metaMes.comisionTipo || v.comisionTipo || 'porcentaje'
+        const tasa = cumplio ? Number(metaMes.comisionSiCumple || v.comisionSiCumple || 0) : Number(metaMes.comisionNoCumple || v.comisionNoCumple || 0)
+        if (comTipo === 'fijo') comision = tasa
         else comision = vendido * tasa / 100
 
         sumaEquipo     += vendido

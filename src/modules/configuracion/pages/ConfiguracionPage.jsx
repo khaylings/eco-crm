@@ -2074,12 +2074,12 @@ function PaginaEmpleados() {
   }, [])
 
   const abrirNuevo = () => {
-    setForm({ nombre: '', apellido: '', telefono: '', cedula: '', cargoId: '', cargoNombre: '', usuarioId: '', fechaIngreso: '', activo: true, asignableOperaciones: false, asignableVentas: false, metaVentas: '' })
+    setForm({ nombre: '', apellido: '', telefono: '', cedula: '', cargoId: '', cargoNombre: '', usuarioId: '', fechaIngreso: '', activo: true, asignableOperaciones: false, asignableVentas: false, metaVentas: '', comisionTipo: 'porcentaje', comisionSiCumple: '', comisionNoCumple: '' })
     setModal('nuevo')
   }
 
   const abrirEditar = (emp) => {
-    setForm({ nombre: emp.nombre || '', apellido: emp.apellido || '', telefono: emp.telefono || '', cedula: emp.cedula || '', cargoId: emp.cargoId || '', cargoNombre: emp.cargoNombre || '', usuarioId: emp.usuarioId || '', fechaIngreso: emp.fechaIngreso || '', activo: emp.activo !== false, asignableOperaciones: emp.asignableOperaciones || false, asignableVentas: emp.asignableVentas || false, metaVentas: emp.metaVentas || '' })
+    setForm({ nombre: emp.nombre || '', apellido: emp.apellido || '', telefono: emp.telefono || '', cedula: emp.cedula || '', cargoId: emp.cargoId || '', cargoNombre: emp.cargoNombre || '', usuarioId: emp.usuarioId || '', fechaIngreso: emp.fechaIngreso || '', activo: emp.activo !== false, asignableOperaciones: emp.asignableOperaciones || false, asignableVentas: emp.asignableVentas || false, metaVentas: emp.metaVentas || '', comisionTipo: emp.comisionTipo || 'porcentaje', comisionSiCumple: emp.comisionSiCumple || '', comisionNoCumple: emp.comisionNoCumple || '' })
     setModal(emp)
   }
 
@@ -2088,7 +2088,7 @@ function PaginaEmpleados() {
     setGuardando(true)
     try {
       const cargo = cargos.find(c => c.id === form.cargoId)
-      const data = { ...form, cargoNombre: cargo?.nombre || '', metaVentas: form.metaVentas ? Number(form.metaVentas) : 0, actualizadoEn: serverTimestamp() }
+      const data = { ...form, cargoNombre: cargo?.nombre || '', metaVentas: form.metaVentas ? Number(form.metaVentas) : 0, comisionSiCumple: form.comisionSiCumple ? Number(form.comisionSiCumple) : 0, comisionNoCumple: form.comisionNoCumple ? Number(form.comisionNoCumple) : 0, actualizadoEn: serverTimestamp() }
       if (modal === 'nuevo') {
         await addDoc(collection(db, 'empleados'), { ...data, creadoEn: serverTimestamp() })
       } else {
@@ -2248,9 +2248,28 @@ function PaginaEmpleados() {
                   Asignable a ventas
                 </label>
                 {form.asignableVentas && (
-                  <div style={{ marginTop: 8, paddingLeft: 20 }}>
-                    <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }}>Meta de ventas mensual (USD)</label>
-                    <input type="number" value={form.metaVentas} onChange={e => setForm({ ...form, metaVentas: e.target.value })} placeholder="Ej: 5000" style={sty.inp} />
+                  <div style={{ marginTop: 8, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }}>Meta de ventas mensual (USD)</label>
+                      <input type="number" value={form.metaVentas} onChange={e => setForm({ ...form, metaVentas: e.target.value })} placeholder="Ej: 5000" style={sty.inp} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }}>Tipo de comisión</label>
+                      <select value={form.comisionTipo} onChange={e => setForm({ ...form, comisionTipo: e.target.value })} style={sty.inp}>
+                        <option value="porcentaje">Porcentaje sobre ventas</option>
+                        <option value="fijo">Monto fijo</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 10, fontWeight: 600, color: '#3B6D11', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }}>✓ Si cumple meta {form.comisionTipo === 'porcentaje' ? '(%)' : '(USD)'}</label>
+                        <input type="number" value={form.comisionSiCumple} onChange={e => setForm({ ...form, comisionSiCumple: e.target.value })} placeholder={form.comisionTipo === 'porcentaje' ? 'Ej: 5' : 'Ej: 500'} style={sty.inp} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 10, fontWeight: 600, color: '#854F0B', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }}>✗ Si no cumple {form.comisionTipo === 'porcentaje' ? '(%)' : '(USD)'}</label>
+                        <input type="number" value={form.comisionNoCumple} onChange={e => setForm({ ...form, comisionNoCumple: e.target.value })} placeholder={form.comisionTipo === 'porcentaje' ? 'Ej: 2' : 'Ej: 200'} style={sty.inp} />
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

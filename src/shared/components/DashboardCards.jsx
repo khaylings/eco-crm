@@ -71,7 +71,8 @@ function Badge({ estado }) {
   return <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 12, background: (c[estado] || '#888') + '18', color: c[estado] || '#888', fontWeight: 500 }}>{estado || '—'}</span>
 }
 
-export default function DashboardCards({ datos, actividad, pipeline, metricas, loading, navigate }) {
+export default function DashboardCards({ datos, actividad, pipeline, metricas, loading, navigate, usuario }) {
+  const esAdmin = usuario?.rol === 'Super Administrador' || usuario?.rol === 'Administrador' || usuario?.rol === 'Supervisor'
   const [secciones, setSecciones] = useState(loadSecciones)
   const [dragSec, setDragSec] = useState(null)
   const [dragOverSec, setDragOverSec] = useState(null)
@@ -138,22 +139,23 @@ export default function DashboardCards({ datos, actividad, pipeline, metricas, l
 
       case 'por_cobrar':
         const hoyPC = new Date(); hoyPC.setHours(0,0,0,0)
-        const facturasPC = (datos?.porCobrar || []).map(f => {
-          const vence = f.fechaVencimiento ? new Date(f.fechaVencimiento + 'T00:00:00') : null
-          const dias = vence ? Math.round((vence - hoyPC) / 86400000) : 999
-          const monto = f.moneda === 'CRC' ? Number(f.saldo || f.total || 0) / Number(f.tasa || 519.5) : Number(f.saldo || f.total || 0)
-          return { ...f, dias, montoUSD: monto, vendedorCorto: (f.vendedorNombre || '').split(' ')[0] }
-        }).sort((a, b) => a.dias - b.dias)
+        const facturasPC = (datos?.porCobrar || [])
+          .filter(f => esAdmin || f.vendedorId === usuario?.uid)
+          .map(f => {
+            const vence = f.fechaVencimiento ? new Date(f.fechaVencimiento + 'T00:00:00') : null
+            const dias = vence ? Math.round((vence - hoyPC) / 86400000) : 999
+            const monto = f.moneda === 'CRC' ? Number(f.saldo || f.total || 0) / Number(f.tasa || 519.5) : Number(f.saldo || f.total || 0)
+            return { ...f, dias, montoUSD: monto }
+          }).sort((a, b) => a.dias - b.dias)
         return (
           <div key={sec.key} style={cs} {...dp}>
             <SeccionHeader label={<>{handle}Por cobrar</>} />
             <TablaMini
-              headers={[{ k: 'c', label: 'Cliente' }, { k: 'v', label: 'Vendedor' }, { k: 's', label: 'Monto', right: true }, { k: 'f', label: 'Días', right: true }]}
+              headers={[{ k: 'c', label: 'Cliente' }, { k: 's', label: 'Monto', right: true }, { k: 'f', label: 'Días', right: true }]}
               rows={facturasPC.map(f => {
                 const vencido = f.dias < 0
                 return [
                   <span>{f.clienteNombre || '—'}</span>,
-                  <span>{f.vendedorCorto || '—'}</span>,
                   <span style={{ fontWeight: 500, color: '#A32D2D' }}>${Number(f.montoUSD).toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>,
                   <span style={{ fontWeight: 600, color: vencido ? '#A32D2D' : f.dias <= 7 ? '#854F0B' : '#3B6D11' }}>{vencido ? `${f.dias}d` : `+${f.dias}d`}</span>,
                 ]

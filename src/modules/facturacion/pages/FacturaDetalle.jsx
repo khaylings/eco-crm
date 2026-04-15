@@ -361,6 +361,7 @@ export default function FacturaDetalle() {
   const puedeMarcarIncobrable = puede('facturas', 'Marcar como incobrable')
   const puedeVerPrecios       = puede('facturas', 'Ver precios y montos')
   const puedeBancos           = puede('bancos', 'Ver') // permiso de bancos para editar fecha y solicitar eliminación
+  const esAdmin               = usuario?.rol === 'Super Administrador' || usuario?.rol === 'Administrador'
 
   const [factura,             setFactura]             = useState(null)
   const [loading,             setLoading]             = useState(true)
@@ -373,6 +374,15 @@ export default function FacturaDetalle() {
   const [fechaEdit,           setFechaEdit]           = useState('')
   const [guardandoFecha,      setGuardandoFecha]      = useState(false)
   const [fechaGuardada,       setFechaGuardada]       = useState(false)
+  const [editandoVendedor,    setEditandoVendedor]    = useState(false)
+  const [nuevoVendedorId,     setNuevoVendedorId]     = useState('')
+  const [listaVendedores,     setListaVendedores]     = useState([])
+
+  useEffect(() => {
+    getDocs(collection(db, 'usuarios')).then(snap => {
+      setListaVendedores(snap.docs.map(d => ({ uid: d.id, ...d.data() })))
+    })
+  }, [])
 
   useEffect(() => { cargar() }, [id])
 
@@ -590,7 +600,25 @@ export default function FacturaDetalle() {
               </div>
               <div>
                 <label style={s.lbl}>Vendedor</label>
-                <p style={{ fontWeight: 500, margin: 0 }}>{factura.vendedorNombre || '—'}</p>
+                {editandoVendedor ? (
+                  <select value={nuevoVendedorId} onChange={async (e) => {
+                    const uid = e.target.value
+                    const u = listaVendedores.find(v => v.uid === uid)
+                    if (u) {
+                      await updateDoc(doc(db, 'facturas', factura.id), { vendedorId: uid, vendedorNombre: u.nombre || u.email })
+                      setFactura(prev => ({ ...prev, vendedorId: uid, vendedorNombre: u.nombre || u.email }))
+                    }
+                    setEditandoVendedor(false)
+                  }} style={{ fontSize: 13, padding: '4px 8px', borderRadius: 6, border: '1px solid #d0d8e0', fontFamily: 'inherit', width: '100%' }} autoFocus onBlur={() => setTimeout(() => setEditandoVendedor(false), 200)}>
+                    <option value="">Seleccionar...</option>
+                    {listaVendedores.map(v => <option key={v.uid} value={v.uid}>{v.nombre || v.email}</option>)}
+                  </select>
+                ) : (
+                  <p style={{ fontWeight: 500, margin: 0, cursor: esAdmin ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => { if (esAdmin) { setNuevoVendedorId(factura.vendedorId || ''); setEditandoVendedor(true) } }}>
+                    {factura.vendedorNombre || '—'}
+                    {esAdmin && <span style={{ fontSize: 10, color: '#aaa' }}>✏️</span>}
+                  </p>
+                )}
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
